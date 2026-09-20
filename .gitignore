@@ -1,0 +1,78 @@
+# ========================
+# Dependencies
+# ========================
+node_modules/
+# 理由：包管理器安装的依赖，体积大且跨平台不一致，通过 pnpm install 还原
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.*
+!.env.example
+# 理由：包含数据库连接串、JWT 密钥、AES 加密密钥等敏感信息，绝不能入库
+
+# ========================
+# Python (server/)
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+
+# ========================
+# Database
+# ========================
+*.db
+*.sqlite
+*.sqlite3
+# 理由：运行时产生的 SQLite 数据库文件（如 giftregistry.db），包含用户数据，不应入库
+
+# ========================
+# Logs
+# ========================
+*.log
+server/server.log
+server/server_debug.log
+# 理由：运行时日志，内容随环境变化，无版本控制价值
+
+# ========================
+# Build Output (web/)
+# ========================
+web/dist/
+web/dev-dist/
+web/tsconfig.tsbuildinfo
+# 理由：Vite 构建产物和 TS 增量编译缓存，可通过 pnpm build 重新生成
+
+# ========================
+# OS / Editor
+# ========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+# 理由：操作系统元文件和编辑器配置，与项目代码无关
+
+# ========================
+# Testing & Coverage
+# ========================
+coverage/
+htmlcov/
+.coverage
+.pytest_cache/
+# 理由：测试覆盖率报告和缓存，可重新生成
+
+# ========================
+# Docker volumes (if any)
+# ========================
+docker-data/
+# 理由：本地 Docker 挂载的数据目录，环境相关

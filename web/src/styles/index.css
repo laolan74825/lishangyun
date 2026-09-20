@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/**
+ * 随礼记账本 — 设计令牌
+ * 来源：ui-design-spec.md 第二节「设计系统」
+ * 命名映射：primary=主色橙 / success=成功绿 / danger=错误红
+ *          warning=警告橙 / info=信息蓝 / gold=金色强调
+ */
+
+@theme {
+  /* 主色（Primary） */
+  --color-primary-deep: #c45c26;
+  --color-primary: #e07b3a;
+  --color-primary-light: #f5a76e;
+
+  /* 辅助色（Success） */
+  --color-success-deep: #2d6a4f;
+  --color-success: #40916c;
+  --color-success-light: #74c69d;
+  --color-success-bg: #d4f5e0;
+
+  /* 功能色（Functional） */
+  --color-danger: #c0392b;
+  --color-danger-bg: #fadbd8;
+  --color-warning: #e67e22;
+  --color-warning-bg: #fef3e2;
+  --color-info: #3498db;
+
+  /* 中性色（Neutral） */
+  --color-ink: #1a1a1a;
+  --color-ink-secondary: #666666;
+  --color-bg: #f5f5f0;
+  --color-card: #ffffff;
+  --color-line: #e8e8e3;
+  --color-disabled: #cccccc;
+
+  /* 特殊色 */
+  --color-gold: #d4af37;
+  --color-gold-light: #fff8e7;
+
+  /* 字体栈 */
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', -apple-system,
+    BlinkMacSystemFont, sans-serif;
+
+  /* 间距系统 — 使用 --space-* 前缀避免与 Tailwind 内置 spacing scale 冲突 */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* 圆角 */
+  --radius-btn: 12px;
+  --radius-card: 16px;
+  --radius-modal: 20px;
+
+  /* 阴影 */
+  --shadow-card: 0 2px 8px rgb(0 0 0 / 0.06);
+  --shadow-modal: 0 8px 24px rgb(0 0 0 / 0.12);
+  --shadow-qrcode: 0 4px 12px rgb(0 0 0 / 0.08);
+}
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    /* 移动端禁止双击缩放，现场快速录入更跟手 */
+    touch-action: manipulation;
+  }
+
+  body {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+}
+
+@utility text-amount {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility text-page-title {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+@utility text-section-title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+@utility text-caption {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+@utility text-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}

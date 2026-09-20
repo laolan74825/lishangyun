@@ -1,0 +1,62 @@
+import { clearToken, getToken } from './auth'
+
+const API_BASE = '/api'
+
+export class ApiError extends Error {
+  constructor(public status: number, public detail: string) {
+    super(detail)
+    this.name = 'ApiError'
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> || {}),
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  })
+
+  if (res.status === 401) {
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError(401, '未授权')
+  }
+
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail || body.message || detail
+    } catch { /* ignore */ }
+    throw new ApiError(res.status, detail)
+  }
+
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+export const api = {
+  get<T>(path: string): Promise<T> {
+    return request<T>(path)
+  },
+  post<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(path, { method: 'POST', body: body != null ? JSON.stringify(body) : undefined })
+  },
+  put<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(path, { method: 'PUT', body: body != null ? JSON.stringify(body) : undefined })
+  },
+  patch<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(path, { method: 'PATCH', body: body != null ? JSON.stringify(body) : undefined })
+  },
+  delete<T>(path: string): Promise<T> {
+    return request<T>(path, { method: 'DELETE' })
+  },
+}
