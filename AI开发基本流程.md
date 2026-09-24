@@ -5,7 +5,7 @@
 > 现代化更新：2026-09-21
 > 适用对象：AI 开发助手（Qoder 等）
 > 关联文档：项目基本开发要求.md（v2.0）、各智能体技能文件（backend-api、frontend-page）
-> 技术栈：React 19 + Compiler / TanStack Router / TanStack Query 5 / Tailwind CSS 4 / Python 3.13 / FastAPI / SQLAlchemy 2.1+ async / Argon2
+> 技术栈：React 19.3 + Compiler / TanStack Router / TanStack Query 5 / Tailwind CSS 4 / Python 3.14 / FastAPI / SQLAlchemy 2.0+ async / Argon2
 
 ---
 
@@ -60,7 +60,7 @@
 
 ## 三、编码规范速查
 
-### 3.1 后端（Python 3.13 / FastAPI / SQLAlchemy 2.1+ async）
+### 3.1 后端（Python 3.14 / FastAPI / SQLAlchemy 2.0+ async）
 
 ```python
 # 依赖注入（Annotated 模式 + AsyncSession）
@@ -209,7 +209,7 @@ alembic downgrade -1
 
 | 禁止行为 | 原因 |
 |----------|------|
-| 使用 `text()` 写原生 SQL | 项目要求纯 ORM 操作（SQLAlchemy 2.1+ async） |
+| 使用 `text()` 写原生 SQL | 项目要求纯 ORM 操作（SQLAlchemy 2.0+ async） |
 | 使用 `any` 类型（前端） | TypeScript strict 模式 |
 | 跳过分页直接返回全量列表 | 3000+ 记录时性能崩溃 |
 | Python 层循环做聚合 | 必须用 `func.sum()` / `func.count()` |

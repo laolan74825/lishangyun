@@ -9,8 +9,8 @@ Develop and maintain the React frontend for GiftRegistry. All work lives under `
 
 ## Tech Stack
 
-- React 19, TypeScript 5.8 (strict), Vite 6, Tailwind CSS 4, Zustand 5, react-router-dom 7, dayjs, vite-plugin-pwa
-- Package manager: **pnpm** (not npm/yarn)
+- React 19.3, TypeScript 6.0 (strict), Vite 8, Tailwind CSS 4, Zustand 5, TanStack Router, dayjs, vite-plugin-pwa 1.0+
+- Package manager: **pnpm 12+** (not npm/yarn)
 - HTTP client: custom `api` wrapper around `fetch` (see `lib/api.ts`)
 
 ## Hard Constraints

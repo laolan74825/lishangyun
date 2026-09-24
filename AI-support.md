@@ -674,10 +674,10 @@ GiftRegistry/
 
 ### 12.1 前置要求
 
-- Node.js 22 LTS
-- Python 3.13+
-- pnpm 9+
-- uv 0.4+
+- Node.js 24 LTS
+- Python 3.14+
+- pnpm 12+
+- uv 0.12+
 - Docker & Docker Compose v2（用于 PostgreSQL）
 
 ### 12.2 启动步骤

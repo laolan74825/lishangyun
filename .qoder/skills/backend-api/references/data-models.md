@@ -1,6 +1,6 @@
 # Data Models Reference
 
-All models inherit from `Base` (defined in `app/database.py`). Use SQLAlchemy 2.0 mapped column syntax.
+All models inherit from `Base` (defined in `app/database.py`). Use SQLAlchemy 2.0+ mapped column syntax.
 
 ## Model Registry
 

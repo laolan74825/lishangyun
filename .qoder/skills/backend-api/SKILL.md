@@ -9,19 +9,19 @@ Develop and maintain the FastAPI backend for GiftRegistry. All work lives under 
 
 ## Tech Stack
 
-- Python 3.12, FastAPI 0.115+, SQLAlchemy 2.0, Pydantic v2, Alembic 1.13+, SQLite（开发默认）/ PostgreSQL 16（生产）
-- Auth: python-jose (HS256 JWT) + bcrypt password hashing
-- Package manager: **uv** (not pip)
+- Python 3.14, FastAPI 0.141+, SQLAlchemy 2.0+ (async), Pydantic v2, Alembic 1.20+, SQLite（开发默认）/ PostgreSQL 17（生产）
+- Auth: PyJWT 3 (HS256 JWT) + Argon2 (via passlib) password hashing
+- Package manager: **uv 0.12+** (not pip)
 
 ## Hard Constraints
 
-1. **ORM only** — All DB operations via SQLAlchemy 2.0 ORM. Never use `text()`, `connection.execute()`, or raw SQL strings.
+1. **ORM only** — All DB operations via SQLAlchemy 2.0+ ORM. Never use `text()`, `connection.execute()`, or raw SQL strings.
 2. **Amounts in cents** — All money fields are `INTEGER` (unit: 分). Never use `Float`/`Decimal` for money.
 3. **Type hints everywhere** — Every function must have complete type annotations. 新代码使用 `Annotated[..., Depends(...)]` 进行依赖注入（现有代码全部使用旧式 `= Depends(...)`，逐步迁移中）。
 4. **Data isolation** — All business queries must filter by `owner_id`. ⚠ 当前业务模型尚未添加 `owner_id` 列，新增或修改模型时需按需求文档要求添加此字段。
 5. **Server-generated UUID** — GbRecord creation generates UUID server-side (`uuid.uuid4()`). Each insert gets a unique UUID; the UNIQUE constraint on `uuid` column prevents DB-level duplicates.
 6. **Audit logging** — GbRecord create/update/delete must write to `operation_log`（字段名：`gb_record_id`, `action_type`, `before_data`, `after_data`；action_type 值为大写 `"CREATE"`/`"UPDATE"`/`"DELETE"`）。Logs are immutable (no UPDATE/DELETE on the table).
-7. **Password security** — bcrypt hash only. Admins cannot reset user passwords; users reset via security email.
+7. **Password security** — Argon2 hash only. Admins cannot reset user passwords; users reset via security email.
 
 ## Development Flow
 

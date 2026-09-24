@@ -51,7 +51,7 @@ server/
 │   │
 │   ├── core/                    # Core infrastructure
 │   │   ├── __init__.py
-│   │   ├── security.py          # JWT create/decode, bcrypt hash/verify
+│   │   ├── security.py          # JWT create/decode, argon2 hash/verify
 │   │   ├── dependencies.py      # get_current_user, require_role, oauth2_scheme
 │   │   ├── crypto.py            # AES-256 encrypt/decrypt for sensitive config values
 │   │   └── email_service.py     # SMTP email sending (password reset)
@@ -69,7 +69,7 @@ server/
 ├── requirements.txt             # Python dependencies
 ├── .env                         # Environment config (not committed)
 ├── .env.example                 # Environment template
-└── Dockerfile                   # Python 3.12-slim container
+└── Dockerfile                   # Python 3.14-slim container
 ```
 
 ## Key Entry Points
