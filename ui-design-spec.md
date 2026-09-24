@@ -1,9 +1,11 @@
-# 随礼记账本 — UI 设计方案
+# 随礼记账本 — UI 设计方案（v2.0 现代化版）
 
-> 文档版本：v1.0  
-> 配套需求：随礼记账本需求分析 v2.3  
-> 编制日期：2026-09-07  
+> 文档版本：v2.0
+> 配套需求：随礼记账本需求分析 v3.1
+> 编制日期：2026-09-07
+> 现代化更新：2026-09-21
 > 设计目标：宴席现场高频操作场景下的极致易用性
+> CSS 方案：Tailwind CSS 4（CSS-first @theme 配置）+ 现代 CSS 特性（容器查询、:has()、CSS Layers）
 
 ---
 
@@ -127,6 +129,109 @@ font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', -apple-system, Bl
 | 输入框 | 12px | 聚焦时 `0 0 0 3px rgba(224,123,58,0.2)` |
 | 弹窗 | 20px | `0 8px 24px rgba(0,0,0,0.12)` |
 | 二维码容器 | 16px | `0 4px 12px rgba(0,0,0,0.08)` |
+
+### 2.5 Tailwind CSS 4 实现方案
+
+Tailwind CSS 4 采用 CSS-first 配置，通过 `@theme` 指令在 CSS 文件中定义设计 Token，无需 `tailwind.config.js`。
+
+```css
+/* src/styles/theme.css — Tailwind CSS 4 @theme 配置 */
+@import "tailwindcss";
+
+@theme {
+  /* ── 色彩 Token ── */
+  --color-primary-50:  #FFF3EB;
+  --color-primary-100: #F5A76E;
+  --color-primary-500: #E07B3A;   /* 主色-中：主按钮/提交 */
+  --color-primary-700: #C45C26;   /* 主色-深 */
+
+  --color-success-50:  #E8F5E9;
+  --color-success-100: #74C69D;
+  --color-success-500: #40916C;   /* 成功/已对账 */
+  --color-success-700: #2D6A4F;
+
+  --color-danger-500:  #C0392B;   /* 错误/禁用/限额已满 */
+  --color-warning-500: #E67E22;   /* 警告/限额紧张 */
+  --color-info-500:    #3498DB;   /* 信息/链接 */
+
+  --color-neutral-900: #1A1A1A;   /* 文字主色 */
+  --color-neutral-500: #666666;   /* 文字次要 */
+  --color-neutral-50:  #F5F5F0;   /* 页面背景 */
+
+  --color-gold-500:    #D4AF37;   /* 金色强调 */
+  --color-gold-50:     #FFF8E7;   /* 金色浅底 */
+
+  /* ── 间距 Token ── */
+  --spacing-xs:  4px;
+  --spacing-sm:  8px;
+  --spacing-md:  16px;
+  --spacing-lg:  24px;
+  --spacing-xl:  32px;
+  --spacing-2xl: 48px;
+
+  /* ── 圆角 Token ── */
+  --radius-btn-primary: 12px;
+  --radius-btn-secondary: 8px;
+  --radius-card: 16px;
+  --radius-input: 12px;
+  --radius-modal: 20px;
+
+  /* ── 阴影 Token ── */
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-input-focus: 0 0 0 3px rgba(224,123,58,0.2);
+  --shadow-modal: 0 8px 24px rgba(0,0,0,0.12);
+  --shadow-qrcode: 0 4px 12px rgba(0,0,0,0.08);
+
+  /* ── 字体栈 ── */
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC',
+               -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* ── 断点（Tailwind CSS 4 使用 @custom-media 或直接在 @media 中使用） ── */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 1024px;
+  --breakpoint-lg: 1280px;
+  --breakpoint-xl: 1440px;
+  --breakpoint-2xl: 1920px;
+}
+```
+
+**使用示例：**
+
+```html
+<!-- 主按钮：直接使用 Token 类名 -->
+<button class="bg-primary-500 hover:bg-primary-700 text-white rounded-btn-primary
+               px-spacing-md py-spacing-sm text-base font-bold
+               active:scale-96 transition-transform">
+  记一笔
+</button>
+
+<!-- 卡片：使用阴影和圆角 Token -->
+<div class="bg-white rounded-card shadow-card p-spacing-md">
+  <span class="text-neutral-900 font-bold text-2xl">¥ 12,800</span>
+</div>
+
+<!-- 容器查询：卡片内部根据容器宽度自适应布局 -->
+<div class="@container">
+  <div class="grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-3 gap-spacing-md">
+    <!-- 记录项根据容器宽度自动调整列数 -->
+  </div>
+</div>
+
+<!-- :has() 选择器：表单验证状态样式 -->
+<form class="has-[input:invalid]:border-danger-500">
+  <input type="number" required />
+</form>
+```
+
+**现代 CSS 特性应用：**
+
+| 特性 | 场景 | 实现方式 |
+|------|------|----------|
+| 容器查询 (`@container`) | 卡片/组件内部响应式 | 组件根据父容器宽度而非视口宽度调整布局 |
+| `:has()` 选择器 | 表单验证、父级状态 | 父元素根据子元素状态（invalid/checked/focus）改变样式 |
+| CSS Layers (`@layer`) | 样式优先级管理 | Tailwind 4 内置 layers：`@layer theme, base, components, utilities` |
+| `color-mix()` | 悬停/禁用态颜色 | `color-mix(in srgb, var(--color-primary-500), black 15%)` |
+| `@starting-style` | 入场动画起始状态 | 配合 `transition-behavior` 实现元素首次渲染动画 |
 
 ---
 
@@ -839,19 +944,16 @@ font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', -apple-system, Bl
 
 ## 六、响应式断点
 
-| 断点 | 设备 | 布局策略 |
-|------|------|----------|
-| < 640px | 手机竖屏 | 单列布局，底部固定操作栏 |
-| 640px - 1024px | 平板竖屏 / 大手机 | 单列布局，元素适当放大（1.1x） |
-| 1024px - 1279px | 平板横屏 | 左右分栏，左侧录入 + 右侧展示 |
-| **1280px - 1439px** | **小桌面 / 笔记本** | **顶部导航 + 侧边栏 260px + 主内容区，标准信息密度** |
-| **1440px - 1919px** | **标准桌面** | **顶部导航 + 侧边栏 280px + 主内容区，高信息密度，图表并排** |
-| **≥ 1920px** | **大屏 / 超宽屏** | **侧边栏 320px + 主内容区最大 1600px 居中，充分利用横向空间** |
-|------|------|----------|
-| < 640px | 手机竖屏 | 单列布局，底部固定操作栏 |
-| 640px - 1024px | 平板竖屏 / 大手机 | 单列布局，元素适当放大（1.1x） |
-| ≥ 1024px | 平板横屏 | 左右分栏，左侧录入 + 右侧展示 |
-| ≥ 1280px | **电脑桌面端** | **多窗口/多标签布局，信息密度最大化，支持键盘快捷键** |
+| 断点 | 设备 | 布局策略 | Tailwind CSS 4 实现 |
+|------|------|----------|---------------------|
+| < 640px | 手机竖屏 | 单列布局，底部固定操作栏 | 默认样式（mobile-first） |
+| 640px - 1023px | 平板竖屏 / 大手机 | 单列布局，元素适当放大（1.1x） | `@media (width >= 640px)` / `sm:` |
+| 1024px - 1279px | 平板横屏 | 左右分栏，左侧录入 + 右侧展示 | `@media (width >= 1024px)` / `md:` |
+| 1280px - 1439px | 小桌面 / 笔记本 | 顶部导航 + 侧边栏 260px + 主内容区，标准信息密度 | `lg:` |
+| 1440px - 1919px | 标准桌面 | 顶部导航 + 侧边栏 280px + 主内容区，高信息密度，图表并排 | `xl:` |
+| ≥ 1920px | 大屏 / 超宽屏 | 侧边栏 320px + 主内容区最大 1600px 居中，充分利用横向空间 | `2xl:` |
+
+**容器查询补充：** 组件内部布局使用容器查询（`@container`）实现真正的组件级响应式，不依赖全局视口宽度。例如收礼记录卡片在窄容器中单列显示，在宽容器中自动切换为双列。
 
 ---
 
@@ -909,9 +1011,8 @@ font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', -apple-system, Bl
 | 交付物 | 格式 | 说明 |
 |--------|------|------|
 | UI 设计稿（本文件） | Markdown | 完整的设计规范与页面说明 |
-| 色彩 Token 文件 | CSS Variables / JSON | 可直接用于开发 |
-| 字体 Token 文件 | CSS / JSON | 字号、字重、行高 |
-| 间距 Token 文件 | CSS / JSON | 间距系统 |
+| 设计 Token 文件 | Tailwind CSS 4 `@theme` | 色彩/间距/圆角/阴影/字体统一在 CSS 中定义（见 2.5 节） |
+| Token JSON 导出 | JSON | 供移动端或其他平台使用的 Token 镜像 |
 | 图标库 | SVG | 20+ 核心图标（现金、微信、对账、合并等） |
 | 页面标注（可选） | Figma / 图片 | 各页面的精确像素标注 |
 | **电脑端页面原型** | **Figma / HTML** | **6个桌面端核心页面：仪表板/收礼大屏/对账中心/统计大屏/人员管理/账户配置** |
@@ -919,4 +1020,4 @@ font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', -apple-system, Bl
 
 ---
 
-*本 UI 设计方案基于需求分析文档 v2.3 编制，后续可根据开发反馈和实际测试迭代优化。*
+*本 UI 设计方案基于需求分析文档 v3.1 编制，后续可根据开发反馈和实际测试迭代优化。*

@@ -1,5 +1,4 @@
 adam-bender.commit-message-editor
-alibaba-cloud.tongyi-lingma
 aminer.codegeex
 batisteo.vscode-django
 bierner.markdown-checkbox
@@ -20,7 +19,6 @@ fcrespo82.markdown-table-formatter
 formulahendry.auto-rename-tag
 humao.rest-client
 mhutchie.git-graph
-moonshot-ai.kimi-code
 ms-azuretools.vscode-containers
 ms-ceintl.vscode-language-pack-zh-hans
 ms-python.python
