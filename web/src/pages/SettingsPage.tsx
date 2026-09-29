@@ -1,25 +1,25 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useMutation } from '@tanstack/react-query'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { getClientId } from '../lib/client'
 import { useAppStore } from '../store/appStore'
-import { getCurrentUser } from '../lib/auth'
-import { api } from '../lib/api'
-
-interface SmtpSettings {
-  smtp_host: string
-  smtp_port: string
-  smtp_user: string
-  smtp_password: string
-}
-
-interface AppUser {
-  id: number
-  username: string
-  role: string
-  email?: string
-  is_active: boolean
-}
+import { getCurrentUser, clearToken } from '../lib/auth'
+import { syncEngine } from '../lib/sync-engine'
+import SyncStatusBadge from '../components/SyncStatusBadge'
+import ConflictResolutionPanel from '../components/ConflictResolutionPanel'
+import {
+  useProfile,
+  useSecurityEmails,
+  useUpdateProfile,
+  useAddSecurityEmail,
+  useDeleteSecurityEmail,
+  useDeleteAccount,
+} from '../hooks/useQueries'
+import { sendSecurityEmailCode, changePassword } from '../lib/api-client'
+import type { ProfileResponse, SecurityEmailItem } from '../types'
 
 const OPERATOR_KEY = 'gr_operator_name'
 
@@ -33,12 +33,20 @@ function saveOperatorName(name: string) {
 
 export default function SettingsPage() {
   const clientId = getClientId()
+  const navigate = useNavigate()
   const { toast, showToast } = useToast()
   const currentUser = getCurrentUser()
-  const isAdmin = currentUser?.role === 'admin'
 
   const setOperatorName = useAppStore((s) => s.setOperatorName)
   const [operatorName, setLocalOperator] = useState(loadOperatorName)
+
+  const { data: profile } = useProfile()
+  const { data: securityEmails = [] } = useSecurityEmails()
+  const updateProfile = useUpdateProfile()
+  const deleteAccount = useDeleteAccount()
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
 
   useEffect(() => {
     const saved = loadOperatorName()
@@ -49,6 +57,21 @@ export default function SettingsPage() {
     setLocalOperator(value)
     saveOperatorName(value)
     setOperatorName(value)
+  }
+
+  async function handleDeleteAccount() {
+    if (!deletePassword) {
+      showToast('请输入密码')
+      return
+    }
+    try {
+      await deleteAccount.mutateAsync(deletePassword)
+      showToast('账户已注销')
+      clearToken()
+      navigate({ to: '/login' })
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '注销失败')
+    }
   }
 
   return (
@@ -83,30 +106,97 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* 数据同步 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">🔄 数据同步</h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            本地数据自动同步至云端，支持多设备数据一致性。
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-ink">同步状态</span>
+              <SyncStatusBadge />
+            </div>
+            <button
+              onClick={() => {
+                syncEngine.sync()
+                showToast('正在同步…')
+              }}
+              className="h-11 rounded-btn bg-primary px-4 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+            >
+              立即同步
+            </button>
+          </div>
+          <div className="mt-4">
+            <ConflictResolutionPanel />
+          </div>
+        </section>
+
         {/* 账户安全 */}
         <section className="rounded-card bg-card p-6 shadow-card">
           <h2 className="text-section-title">🔐 账户安全</h2>
           <ChangePasswordSection showToast={showToast} />
         </section>
 
-        {/* 管理员：SMTP 设置 */}
-        {isAdmin && (
-          <section className="rounded-card bg-card p-6 shadow-card">
-            <h2 className="text-section-title">📧 邮件服务配置</h2>
-            <p className="mt-1 text-sm text-ink-secondary">
-              配置 SMTP 邮件服务，用于密码重置验证码发送。
-            </p>
-            <SmtpSettingsSection showToast={showToast} />
-          </section>
-        )}
+        {/* 个人资料 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">👤 个人资料</h2>
+          <ProfileSection
+            profile={profile}
+            updateProfile={updateProfile}
+            showToast={showToast}
+          />
+        </section>
 
-        {/* 管理员：用户管理 */}
-        {isAdmin && (
-          <section className="rounded-card bg-card p-6 shadow-card">
-            <h2 className="text-section-title">👤 用户管理</h2>
-            <UserManagementSection showToast={showToast} />
-          </section>
-        )}
+        {/* 安全邮箱 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">📧 安全邮箱</h2>
+          <SecurityEmailSection
+            emails={securityEmails}
+            showToast={showToast}
+          />
+        </section>
+
+        {/* 协作与安全 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">🔗 协作与安全</h2>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button
+              onClick={() => navigate({ to: '/family' })}
+              className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:bg-bg"
+            >
+              <span className="text-2xl">👨‍👩‍👧‍👦</span>
+              <div>
+                <p className="text-sm font-medium text-ink">家庭管理</p>
+                <p className="text-xs text-ink-secondary">创建或加入家庭组</p>
+              </div>
+            </button>
+            <button
+              onClick={() => navigate({ to: '/security' })}
+              className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:bg-bg"
+            >
+              <span className="text-2xl">🛡️</span>
+              <div>
+                <p className="text-sm font-medium text-ink">安全模式</p>
+                <p className="text-xs text-ink-secondary">增强数据加密保护</p>
+              </div>
+            </button>
+          </div>
+        </section>
+
+        {/* 注销账户 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">⚠️ 注销账户</h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            注销后账户将无法恢复，所有数据将被永久删除。
+          </p>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="mt-4 rounded-btn border border-danger px-4 py-2 text-sm text-danger hover:bg-danger-bg"
+          >
+            注销账户
+          </button>
+        </section>
 
         {/* 关于 */}
         <section className="rounded-card bg-card p-6 shadow-card">
@@ -120,6 +210,30 @@ export default function SettingsPage() {
         </section>
       </div>
 
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="注销账户"
+        message="此操作不可撤销，确定要注销账户吗？"
+        variant="danger"
+        confirmLabel="注销"
+        onConfirm={handleDeleteAccount}
+        onCancel={() => {
+          setShowDeleteConfirm(false)
+          setDeletePassword('')
+        }}
+        loading={deleteAccount.isPending}
+        extraContent={
+          <input
+            type="password"
+            value={deletePassword}
+            onChange={(e) => setDeletePassword(e.target.value)}
+            placeholder="请输入密码确认"
+            className="mt-3 h-11 w-full rounded-btn border border-line px-4 text-base outline-none focus:border-danger"
+            autoFocus
+          />
+        }
+      />
+
       <Toast message={toast} onClose={() => showToast(null)} />
     </PageScaffold>
   )
@@ -129,23 +243,24 @@ function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [loading, setLoading] = useState(false)
 
-  async function handleChange() {
-    if (!newPassword || newPassword.length < 6) { showToast('新密码至少 6 位'); return }
-    if (newPassword !== confirmPassword) { showToast('两次密码不一致'); return }
-    setLoading(true)
-    try {
-      await api.put('/auth/password', { old_password: oldPassword, new_password: newPassword })
+  const mutation = useMutation({
+    mutationFn: changePassword,
+    onSuccess() {
       showToast('密码已修改')
       setOldPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : '修改失败')
-    } finally {
-      setLoading(false)
-    }
+    },
+    onError(err: Error) {
+      showToast(err.message || '修改失败')
+    },
+  })
+
+  function handleSubmit() {
+    if (!newPassword || newPassword.length < 6) { showToast('新密码至少 6 位'); return }
+    if (newPassword !== confirmPassword) { showToast('两次密码不一致'); return }
+    mutation.mutate({ old_password: oldPassword, new_password: newPassword })
   }
 
   return (
@@ -181,269 +296,230 @@ function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void
         />
       </label>
       <button
-        onClick={handleChange}
-        disabled={loading}
+        onClick={handleSubmit}
+        disabled={mutation.isPending}
         className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
       >
-        {loading ? '提交中…' : '修改密码'}
+        {mutation.isPending ? '提交中…' : '修改密码'}
       </button>
     </div>
   )
 }
 
-function SmtpSettingsSection({ showToast }: { showToast: (msg: string) => void }) {
-  const [settings, setSettings] = useState<SmtpSettings>({
-    smtp_host: '', smtp_port: '465', smtp_user: '', smtp_password: '',
-  })
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
+function ProfileSection({
+  profile,
+  updateProfile,
+  showToast,
+}: {
+  profile: ProfileResponse | undefined
+  updateProfile: ReturnType<typeof useUpdateProfile>
+  showToast: (msg: string) => void
+}) {
+  const [nickname, setNickname] = useState(profile?.nickname ?? '')
+  const [autoLockMinutes, setAutoLockMinutes] = useState(String(profile?.auto_lock_minutes ?? 30))
 
   useEffect(() => {
-    (async () => {
-      setLoading(true)
-      try {
-        const data = await api.get<Record<string, string>>('/admin/settings')
-        setSettings({
-          smtp_host: data.smtp_host || '',
-          smtp_port: data.smtp_port || '465',
-          smtp_user: data.smtp_user || '',
-          smtp_password: '',
-        })
-      } catch { /* ignore */ }
-      finally { setLoading(false) }
-    })()
-  }, [])
+    if (profile) {
+      setNickname(profile.nickname ?? '')
+      setAutoLockMinutes(String(profile.auto_lock_minutes ?? 30))
+    }
+  }, [profile])
 
   async function handleSave() {
-    setSaving(true)
+    const minutes = parseInt(autoLockMinutes)
+    if (isNaN(minutes) || minutes < 1) {
+      showToast('锁定时间无效')
+      return
+    }
     try {
-      await api.put('/admin/settings', settings)
-      showToast('邮件服务配置已保存')
-    } catch (err: unknown) {
+      await updateProfile.mutateAsync({
+        nickname: nickname.trim() || undefined,
+        auto_lock_minutes: minutes,
+      })
+      showToast('资料已保存')
+    } catch (err) {
       showToast(err instanceof Error ? err.message : '保存失败')
-    } finally {
-      setSaving(false)
     }
   }
-
-  if (loading) return <p className="mt-3 text-sm text-ink-secondary">加载中…</p>
 
   return (
     <div className="mt-4 flex flex-col gap-3">
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-ink">SMTP 服务器</span>
+        <span className="text-sm font-medium text-ink">昵称</span>
         <input
-          value={settings.smtp_host}
-          onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })}
-          placeholder="如 smtp.qq.com"
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value)}
+          placeholder="选填"
           className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
         />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-ink">SMTP 端口</span>
+        <span className="text-sm font-medium text-ink">自动锁定时间（分钟）</span>
         <input
-          value={settings.smtp_port}
-          onChange={(e) => setSettings({ ...settings, smtp_port: e.target.value })}
-          placeholder="465"
+          type="number"
+          value={autoLockMinutes}
+          onChange={(e) => setAutoLockMinutes(e.target.value)}
+          min="1"
           className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
         />
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-ink">发件邮箱</span>
-        <input
-          value={settings.smtp_user}
-          onChange={(e) => setSettings({ ...settings, smtp_user: e.target.value })}
-          placeholder="发件人邮箱地址"
-          className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-        />
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-ink">邮箱密码/授权码</span>
-        <input
-          value={settings.smtp_password}
-          onChange={(e) => setSettings({ ...settings, smtp_password: e.target.value })}
-          type="password"
-          placeholder="邮箱密码或授权码"
-          className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-        />
-        <span className="text-xs text-ink-secondary">密码将以 AES-256 加密存储</span>
+        <span className="text-xs text-ink-secondary">无操作超过此时间后自动锁定</span>
       </label>
       <button
         onClick={handleSave}
-        disabled={saving}
+        disabled={updateProfile.isPending}
         className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
       >
-        {saving ? '保存中…' : '保存配置'}
+        {updateProfile.isPending ? '保存中…' : '保存资料'}
       </button>
     </div>
   )
 }
 
-function UserManagementSection({ showToast }: { showToast: (msg: string) => void }) {
-  const [users, setUsers] = useState<AppUser[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showCreate, setShowCreate] = useState(false)
-  const [newUsername, setNewUsername] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [newRole, setNewRole] = useState<'editor' | 'viewer'>('editor')
-  const [newEmail, setNewEmail] = useState('')
+function SecurityEmailSection({
+  emails,
+  showToast,
+}: {
+  emails: SecurityEmailItem[]
+  showToast: (msg: string) => void
+}) {
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [codeSent, setCodeSent] = useState(false)
+  const [sendingCode, setSendingCode] = useState(false)
 
-  async function loadUsers() {
-    setLoading(true)
+  const addEmail = useAddSecurityEmail()
+  const deleteEmail = useDeleteSecurityEmail()
+
+  async function handleSendCode() {
+    if (!email.trim()) {
+      showToast('请输入邮箱')
+      return
+    }
+    setSendingCode(true)
     try {
-      const data = await api.get<AppUser[]>('/admin/users')
-      setUsers(data)
-    } catch { /* ignore */ }
-    finally { setLoading(false) }
-  }
-
-  useEffect(() => { loadUsers() }, [])
-
-  async function handleCreate() {
-    if (!newUsername.trim()) { showToast('请填写用户名'); return }
-    if (!newPassword || newPassword.length < 6) { showToast('密码至少 6 位'); return }
-    try {
-      await api.post('/admin/users', {
-        username: newUsername.trim(),
-        password: newPassword,
-        role: newRole,
-        email: newEmail.trim() || undefined,
-      })
-      showToast('用户已创建')
-      setShowCreate(false)
-      setNewUsername('')
-      setNewPassword('')
-      setNewEmail('')
-      setNewRole('editor')
-      loadUsers()
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : '创建失败')
+      await sendSecurityEmailCode(email.trim())
+      showToast('验证码已发送')
+      setCodeSent(true)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '发送失败')
+    } finally {
+      setSendingCode(false)
     }
   }
 
-  async function handleToggleActive(user: AppUser) {
+  async function handleAddEmail(e: FormEvent) {
+    e.preventDefault()
+    if (!code.trim()) {
+      showToast('请输入验证码')
+      return
+    }
     try {
-      await api.put(`/admin/users/${user.id}`, { is_active: !user.is_active })
-      loadUsers()
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : '操作失败')
+      await addEmail.mutateAsync({ email: email.trim(), code: code.trim() })
+      showToast('邮箱已添加')
+      setShowAddForm(false)
+      setEmail('')
+      setCode('')
+      setCodeSent(false)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '添加失败')
     }
   }
 
-  async function handleDelete(user: AppUser) {
-    if (!confirm(`确定删除用户「${user.username}」吗？`)) return
+  async function handleDeleteEmail(emailId: number) {
     try {
-      await api.delete(`/admin/users/${user.id}`)
-      showToast('用户已删除')
-      loadUsers()
-    } catch (err: unknown) {
+      await deleteEmail.mutateAsync(emailId)
+      showToast('邮箱已删除')
+    } catch (err) {
       showToast(err instanceof Error ? err.message : '删除失败')
     }
   }
 
-  const roleLabels: Record<string, string> = { admin: '管理员', editor: '编辑', viewer: '只读' }
-
   return (
     <div className="mt-4 flex flex-col gap-3">
-      {loading ? (
-        <p className="text-sm text-ink-secondary">加载中…</p>
-      ) : (
+      {emails.length > 0 ? (
         <div className="flex flex-col gap-2">
-          {users.map((u) => (
-            <div key={u.id} className="flex items-center justify-between rounded-lg border border-line px-4 py-2.5">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-ink">{u.username}</span>
-                <span className="text-xs text-ink-secondary">
-                  {roleLabels[u.role] || u.role}
-                  {u.email ? ` · ${u.email}` : ''}
-                  {!u.is_active && ' · 已禁用'}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleToggleActive(u)}
-                  className="rounded-md border border-line px-2 py-1 text-xs text-ink-secondary hover:border-primary"
-                >
-                  {u.is_active ? '禁用' : '启用'}
-                </button>
-                {u.role !== 'admin' && (
-                  <button
-                    onClick={() => handleDelete(u)}
-                    className="rounded-md border border-danger/30 px-2 py-1 text-xs text-danger hover:border-danger"
-                  >
-                    删除
-                  </button>
+          {emails.map((se) => (
+            <div key={se.id} className="flex items-center justify-between rounded-lg bg-bg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-ink">{se.email}</span>
+                {se.is_primary && (
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">主要</span>
                 )}
               </div>
+              {!se.is_primary && (
+                <button
+                  onClick={() => handleDeleteEmail(se.id)}
+                  disabled={deleteEmail.isPending}
+                  className="text-sm text-danger hover:underline disabled:opacity-50"
+                >
+                  删除
+                </button>
+              )}
             </div>
           ))}
         </div>
+      ) : (
+        <p className="text-sm text-ink-secondary">暂未添加安全邮箱</p>
       )}
 
-      {!showCreate ? (
-        <button
-          onClick={() => setShowCreate(true)}
-          className="rounded-btn border border-primary py-2.5 text-sm font-medium text-primary"
-        >
-          ＋ 新建用户
-        </button>
-      ) : (
-        <div className="flex flex-col gap-3 rounded-lg border border-line p-4">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">用户名</span>
+      {showAddForm ? (
+        <form onSubmit={handleAddEmail} className="flex flex-col gap-2 rounded-lg bg-bg p-3">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="输入邮箱地址"
+            className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+            required
+          />
+          <div className="flex gap-2">
             <input
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-              placeholder="登录用户名"
-              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="输入验证码"
+              className="flex-1 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+              required
             />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">密码</span>
-            <input
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              type="password"
-              placeholder="至少 6 位"
-              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">邮箱（可选）</span>
-            <input
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              type="email"
-              placeholder="用于密码重置"
-              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">角色</span>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as 'editor' | 'viewer')}
-              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-            >
-              <option value="editor">编辑（可增删改）</option>
-              <option value="viewer">只读</option>
-            </select>
-          </label>
-          <div className="flex gap-3">
             <button
-              onClick={() => setShowCreate(false)}
-              className="flex-1 rounded-btn border border-line py-2.5 text-sm font-medium text-ink-secondary"
+              type="button"
+              onClick={handleSendCode}
+              disabled={sendingCode || !email.trim() || codeSent}
+              className="rounded-btn bg-primary/10 px-4 text-sm text-primary disabled:opacity-50"
+            >
+              {sendingCode ? '发送中…' : codeSent ? '已发送' : '发送验证码'}
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddForm(false)
+                setEmail('')
+                setCode('')
+                setCodeSent(false)
+              }}
+              className="flex-1 rounded-btn border border-line py-2 text-sm text-ink-secondary"
             >
               取消
             </button>
             <button
-              onClick={handleCreate}
-              className="flex-1 rounded-btn bg-primary py-2.5 text-sm font-semibold text-white"
+              type="submit"
+              disabled={addEmail.isPending}
+              className="flex-1 rounded-btn bg-primary py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              创建
+              {addEmail.isPending ? '添加中…' : '添加'}
             </button>
           </div>
-        </div>
+        </form>
+      ) : (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="rounded-btn bg-primary/10 px-4 py-2 text-sm text-primary hover:bg-primary/20"
+        >
+          + 添加安全邮箱
+        </button>
       )}
     </div>
   )

@@ -1,20 +1,21 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
+import ExportButton from '../components/ExportButton'
+import Modal from '../components/Modal'
+import ConfirmDialog from '../components/ConfirmDialog'
+import RecordTypeTab from '../components/records/RecordTypeTab'
 import type { DailyRecord, RecordType } from '../types'
+import { exportDailyRecords } from '../lib/api-client'
 import {
-  getDailyRecords,
-  dailyRecordsSummary,
-  updateDailyRecord,
-  deleteDailyRecord
-} from '../lib/api-client'
+  useDailyRecords,
+  useDailyRecordsSummary,
+  useUpdateDailyRecord,
+  useDeleteDailyRecord,
+} from '../hooks/useQueries'
 
 /** 明细列表页（需求 F-1.4：按时间倒序、筛选搜索、底部汇总） */
 export default function RecordsListPage() {
-  const [records, setRecords] = useState<DailyRecord[]>([])
-  const [summary, setSummary] = useState({ total_records: 0, total_out: 0, total_in: 0, net: 0 })
-  const [loading, setLoading] = useState(true)
-
   /* 筛选状态 */
   const [activeType, setActiveType] = useState<RecordType | 'all'>('all')
   const [keyword, setKeyword] = useState('')
@@ -26,41 +27,31 @@ export default function RecordsListPage() {
   const [editAmount, setEditAmount] = useState('')
   const [editNote, setEditNote] = useState('')
   const [editDate, setEditDate] = useState('')
-  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editIsPrivate, setEditIsPrivate] = useState(false)
+
+  /* 确认弹窗 */
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const { toast, showToast } = useToast()
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const type = activeType === 'all' ? undefined : activeType
-    const opts = {
-      type,
-      keyword: keyword.trim() || undefined,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined
-    }
-    const [list, sum] = await Promise.all([
-      getDailyRecords(opts),
-      dailyRecordsSummary(opts)
-    ])
-    setRecords(list)
-    setSummary(sum)
-    setLoading(false)
-  }, [activeType, keyword, startDate, endDate])
+  const filters = useMemo(() => ({
+    type: activeType === 'all' ? undefined : activeType,
+    keyword: keyword.trim() || undefined,
+    startDate: startDate || undefined,
+    endDate: endDate || undefined,
+  }), [activeType, keyword, startDate, endDate])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  const { data: records = [], isLoading: loading } = useDailyRecords(filters)
+  const { data: summary = { total_records: 0, total_out: 0, total_in: 0, net: 0 } } = useDailyRecordsSummary(filters)
+  const updateMutation = useUpdateDailyRecord()
+  const deleteMutation = useDeleteDailyRecord()
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('确定删除这条记录吗？')) return
-    try {
-      await deleteDailyRecord(id)
-      showToast('记录已删除')
-      await load()
-    } catch (e) {
-      showToast('删除失败：' + (e as Error).message)
-    }
+  const handleDelete = (id: number) => {
+    deleteMutation.mutate(id, {
+      onSuccess: () => showToast('记录已删除'),
+      onError: (e) => showToast('删除失败：' + e.message),
+    })
+    setDeletingId(null)
   }
 
   const openEdit = (r: DailyRecord) => {
@@ -68,37 +59,35 @@ export default function RecordsListPage() {
     setEditAmount((r.amount / 100).toString())
     setEditNote(r.note ?? '')
     setEditDate(r.event_date)
+    setEditIsPrivate(r.is_private ?? false)
   }
 
-  const handleEditSubmit = async () => {
+  const handleEditSubmit = () => {
     if (!editing?.id) return
     const amountFen = Math.round(parseFloat(editAmount) * 100)
     if (isNaN(amountFen) || amountFen <= 0) {
       showToast('金额无效')
       return
     }
-    setEditSubmitting(true)
-    try {
-      await updateDailyRecord(editing.id, {
-        amount: amountFen,
-        note: editNote.trim() || undefined,
-        event_date: editDate
-      })
-      showToast('记录已更新')
-      setEditing(null)
-      await load()
-    } catch (e) {
-      showToast('更新失败：' + (e as Error).message)
-    } finally {
-      setEditSubmitting(false)
-    }
+    updateMutation.mutate(
+      {
+        id: editing.id,
+        changes: {
+          amount: amountFen,
+          note: editNote.trim() || undefined,
+          event_date: editDate,
+          is_private: editIsPrivate,
+        },
+      },
+      {
+        onSuccess: () => {
+          showToast('记录已更新')
+          setEditing(null)
+        },
+        onError: (e) => showToast('更新失败：' + e.message),
+      },
+    )
   }
-
-  const typeTabs: { value: RecordType | 'all'; label: string }[] = [
-    { value: 'all', label: '全部' },
-    { value: 'out', label: '送出去' },
-    { value: 'in', label: '收进来' }
-  ]
 
   return (
     <PageScaffold
@@ -109,25 +98,23 @@ export default function RecordsListPage() {
           <span className="text-caption text-ink-secondary">
             共 {summary.total_records} 笔
           </span>
+          <ExportButton
+            mode="server"
+            filename="日常记录.xlsx"
+            exportFn={() => exportDailyRecords('xlsx', {
+              type: activeType === 'all' ? undefined : activeType,
+              start_date: startDate || undefined,
+              end_date: endDate || undefined,
+            })}
+            label="导出"
+          />
         </div>
       }
     >
       {/* 筛选栏 */}
       <div className="flex flex-col gap-3 rounded-card bg-card p-4 shadow-card">
         {/* 类型 Tab */}
-        <div className="flex rounded-btn bg-bg p-1">
-          {typeTabs.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setActiveType(tab.value)}
-              className={`flex-1 rounded-btn py-2 text-sm font-semibold transition-colors ${
-                activeType === tab.value ? 'bg-primary text-white' : 'text-ink-secondary'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <RecordTypeTab value={activeType} onChange={setActiveType} />
 
         {/* 搜索 + 日期 */}
         <div className="grid gap-2 sm:grid-cols-3">
@@ -161,9 +148,9 @@ export default function RecordsListPage() {
           { label: '收到合计', value: summary.total_in, color: 'text-success' },
           { label: '净差额', value: summary.net, color: summary.net >= 0 ? 'text-success' : 'text-danger' }
         ].map((card) => (
-          <div key={card.label} className="rounded-card bg-card p-4 text-center shadow-card">
+          <div key={card.label} className="min-w-0 rounded-card bg-card p-4 text-center shadow-card">
             <div className="text-caption text-ink-secondary">{card.label}</div>
-            <div className={`mt-1 text-lg font-bold ${card.color}`}>
+            <div className={`mt-1 break-all text-lg font-bold ${card.color}`}>
               {card.value >= 0 ? '' : '-'}¥{Math.abs(card.value / 100).toFixed(2)}
             </div>
           </div>
@@ -197,6 +184,9 @@ export default function RecordsListPage() {
                     {r.type === 'out' ? '送' : '收'}
                   </span>
                   <span className="font-bold text-ink">{r.person_name}</span>
+                  {r.is_private && (
+                    <span className="rounded-full bg-info/10 px-1.5 py-0.5 text-xs text-info">隐私</span>
+                  )}
                   {r.phone && (
                     <span className="text-xs text-ink-secondary">{r.phone}</span>
                   )}
@@ -228,7 +218,7 @@ export default function RecordsListPage() {
                     编辑
                   </button>
                   <button
-                    onClick={() => handleDelete(r.id!)}
+                    onClick={() => setDeletingId(r.id!)}
                     className="rounded-btn px-2 py-1 text-xs text-danger hover:bg-danger-bg"
                   >
                     删除
@@ -241,14 +231,33 @@ export default function RecordsListPage() {
       )}
 
       {/* 编辑弹窗 */}
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-[24rem] rounded-card bg-card p-6 shadow-xl">
-            <h3 className="text-lg font-bold text-ink">编辑记录</h3>
+      <Modal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        title="编辑记录"
+        actions={
+          <>
+            <button
+              onClick={() => setEditing(null)}
+              className="flex-1 rounded-btn border border-line py-2.5 font-medium text-ink-secondary"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleEditSubmit}
+              disabled={updateMutation.isPending}
+              className="flex-1 rounded-btn bg-primary py-2.5 font-medium text-white disabled:bg-disabled"
+            >
+              {updateMutation.isPending ? '保存中…' : '保存'}
+            </button>
+          </>
+        }
+      >
+        {editing && (
+          <>
             <p className="mt-1 text-sm text-ink-secondary">
               {editing.person_name} · {editing.event_type}
             </p>
-
             <label className="mt-4 flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">金额（元）</span>
               <input
@@ -258,7 +267,6 @@ export default function RecordsListPage() {
                 className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
               />
             </label>
-
             <label className="mt-3 flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">日期</span>
               <input
@@ -268,7 +276,6 @@ export default function RecordsListPage() {
                 className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
               />
             </label>
-
             <label className="mt-3 flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">备注</span>
               <input
@@ -277,25 +284,32 @@ export default function RecordsListPage() {
                 className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
               />
             </label>
+            <label className="mt-3 flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={editIsPrivate}
+                onChange={(e) => setEditIsPrivate(e.target.checked)}
+                className="h-5 w-5 rounded border-line accent-primary"
+              />
+              <div>
+                <span className="text-sm font-medium text-ink">隐私记录</span>
+                <span className="ml-1 text-xs text-ink-secondary">同步云端但仅本人可见</span>
+              </div>
+            </label>
+          </>
+        )}
+      </Modal>
 
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setEditing(null)}
-                className="flex-1 rounded-btn border border-line py-2.5 font-medium text-ink-secondary"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleEditSubmit}
-                disabled={editSubmitting}
-                className="flex-1 rounded-btn bg-primary py-2.5 font-medium text-white disabled:bg-disabled"
-              >
-                {editSubmitting ? '保存中…' : '保存'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={deletingId !== null}
+        title="删除记录"
+        message="确定删除这条记录吗？"
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={() => deletingId && handleDelete(deletingId)}
+        onCancel={() => setDeletingId(null)}
+        loading={deleteMutation.isPending}
+      />
 
       {/* Toast */}
       <Toast message={toast} onClose={() => showToast(null)} />

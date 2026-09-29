@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./giftregistry.db"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/giftregistry"
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 1440
     app_encryption_key: str = "0" * 64

@@ -1,16 +1,19 @@
-import json
 from datetime import datetime
+from app.core.time import utcnow
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
 
-from app.core.dependencies import get_current_user, require_role
-from app.database import get_db
+from app.core.dependencies import CurrentUser, DbSession, require_role
+from app.core.helpers import model_to_dict, paginate_query, write_audit_log
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
-from app.models.operation_log import OperationLog
+from app.models.payment_account import PaymentAccount
 from app.models.user import User
+from app.schemas.common import PaginatedResponse
 from app.schemas.gb_record import (
+    AccountSummaryItem,
     BatchCheckRequest,
     GbRecordBatchCreate,
     GbRecordCreate,
@@ -21,229 +24,291 @@ from app.utils.idempotency import new_uuid
 
 router = APIRouter(tags=["gb-records"])
 
-
-def _add_log(db: Session, guestbook_id: int, gb_record_id: int | None, action_type: str, before=None, after=None, operator_name=None, client_id=None):
-    db.add(OperationLog(
-        guestbook_id=guestbook_id,
-        gb_record_id=gb_record_id,
-        action_type=action_type,
-        operator_name=operator_name,
-        client_id=client_id,
-        before_data=json.dumps(before, ensure_ascii=False, default=str) if before else None,
-        after_data=json.dumps(after, ensure_ascii=False, default=str) if after else None,
-    ))
+EditorUser = Annotated[User, Depends(require_role("super_admin", "admin", "user", "collaborator"))]
+OwnerUser = Annotated[User, Depends(require_role("super_admin", "admin", "user"))]
 
 
-@router.get("/guestbooks/{gb_id}/records", response_model=list[GbRecordResponse])
-def list_records(
+@router.get("/guestbooks/{gb_id}/records", response_model=PaginatedResponse[GbRecordResponse])
+async def list_records(
     gb_id: int,
-    limit: int | None = None,
-    offset: int | None = None,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: CurrentUser,
+    db: DbSession,
+    include_private: bool = Query(True),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
 ):
-    q = db.query(GbRecord).filter(GbRecord.guestbook_id == gb_id).order_by(GbRecord.record_time.desc())
-    if offset is not None and limit is not None:
-        q = q.offset(offset).limit(limit)
-    return q.all()
+    stmt = (
+        select(GbRecord)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == False)
+        .order_by(GbRecord.record_time.desc())
+    )
+    if not include_private:
+        stmt = stmt.where(GbRecord.is_private == False)
+    items, pagination = await paginate_query(db, stmt, page, page_size)
+    return PaginatedResponse(items=items, pagination=pagination)
 
 
 @router.get("/guestbooks/{gb_id}/records/recent", response_model=list[GbRecordResponse])
-def recent_records(
+async def recent_records(
     gb_id: int,
-    limit: int = 5,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: CurrentUser,
+    db: DbSession,
+    limit: int = Query(5, ge=1, le=100),
 ):
-    return (
-        db.query(GbRecord)
-        .filter(GbRecord.guestbook_id == gb_id)
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == False)
         .order_by(GbRecord.record_time.desc())
         .limit(limit)
-        .all()
     )
+    return result.scalars().all()
 
 
 @router.get("/guestbooks/{gb_id}/records/search", response_model=list[GbRecordResponse])
-def search_records(
+async def search_records(
     gb_id: int,
+    current_user: CurrentUser,
+    db: DbSession,
     q: str = Query(..., min_length=1),
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
     keyword = f"%{q}%"
-    return (
-        db.query(GbRecord)
-        .filter(
+    result = await db.execute(
+        select(GbRecord)
+        .where(
             GbRecord.guestbook_id == gb_id,
+            GbRecord.owner_id == current_user.id,
+            GbRecord.is_deleted == False,
             (GbRecord.guest_name.ilike(keyword)) | (GbRecord.agent_name.ilike(keyword)),
         )
-        .all()
     )
+    return result.scalars().all()
 
 
 @router.get("/guestbooks/{gb_id}/records/duplicate")
-def check_duplicate(
+async def check_duplicate(
     gb_id: int,
+    current_user: CurrentUser,
+    db: DbSession,
     name: str = Query(...),
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
-    records = (
-        db.query(GbRecord)
-        .filter(GbRecord.guestbook_id == gb_id, GbRecord.guest_name == name)
-        .all()
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
+               GbRecord.guest_name == name, GbRecord.is_deleted == False)
     )
+    records = result.scalars().all()
     return {"has_duplicate": len(records) > 0, "records": [GbRecordResponse.model_validate(r) for r in records]}
 
 
 @router.get("/guestbooks/{gb_id}/records/phone", response_model=GbRecordResponse | None)
-def find_by_phone(
+async def find_by_phone(
     gb_id: int,
+    current_user: CurrentUser,
+    db: DbSession,
     phone: str = Query(...),
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
-    return (
-        db.query(GbRecord)
-        .filter(GbRecord.guestbook_id == gb_id, GbRecord.phone == phone)
-        .first()
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
+               GbRecord.phone == phone, GbRecord.is_deleted == False)
     )
+    return result.scalar_one_or_none()
 
 
 @router.post("/guestbooks/{gb_id}/records", response_model=int)
-def create_record(
+async def create_record(
     gb_id: int,
     body: GbRecordCreate,
+    db: DbSession,
+    current_user: EditorUser,
     client_id: str | None = None,
     operator_name: str | None = None,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
 ):
-    gb = db.query(Guestbook).filter(Guestbook.id == gb_id).first()
+    result = await db.execute(
+        select(Guestbook)
+        .where(Guestbook.id == gb_id, Guestbook.owner_id == current_user.id,
+               Guestbook.is_deleted == False)
+    )
+    gb = result.scalar_one_or_none()
     if not gb:
         raise HTTPException(status_code=404, detail="礼簿不存在")
 
     record = GbRecord(
         uuid=new_uuid(),
+        owner_id=current_user.id,
         guestbook_id=gb_id,
         check_status="unchecked",
-        record_time=body.record_time or datetime.utcnow(),
+        record_time=body.record_time or utcnow(),
         client_id=client_id,
         operator_name=operator_name,
         **body.model_dump(exclude={"record_time"}),
     )
     db.add(record)
-    db.flush()
-    _add_log(db, gb_id, record.id, "CREATE", after=record.__dict__, operator_name=operator_name, client_id=client_id)
-    db.commit()
+    await db.flush()
+    write_audit_log(db, current_user.id, "gb_records", record.id, "CREATE",
+                    guestbook_id=gb_id, operator_name=operator_name, client_id=client_id,
+                    after=body.model_dump())
+    await db.commit()
     return record.id
 
 
 @router.post("/guestbooks/{gb_id}/records/batch", response_model=list[int])
-def create_records_batch(
+async def create_records_batch(
     gb_id: int,
     body: GbRecordBatchCreate,
+    db: DbSession,
+    current_user: EditorUser,
     client_id: str | None = None,
     operator_name: str | None = None,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
 ):
+    result = await db.execute(
+        select(Guestbook)
+        .where(Guestbook.id == gb_id, Guestbook.owner_id == current_user.id,
+               Guestbook.is_deleted == False)
+    )
+    gb = result.scalar_one_or_none()
+    if not gb:
+        raise HTTPException(status_code=404, detail="礼簿不存在")
+
     ids = []
     for item in body.records:
         record = GbRecord(
             uuid=new_uuid(),
+            owner_id=current_user.id,
             guestbook_id=gb_id,
             check_status="unchecked",
-            record_time=item.record_time or datetime.utcnow(),
+            record_time=item.record_time or utcnow(),
             client_id=client_id,
             operator_name=operator_name,
             **item.model_dump(exclude={"record_time"}),
         )
         db.add(record)
-        db.flush()
+        await db.flush()
         ids.append(record.id)
-    db.commit()
+    await db.commit()
     return ids
 
 
 @router.put("/gb-records/{record_id}")
-def update_record(
+async def update_record(
     record_id: int,
     body: GbRecordUpdate,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    db: DbSession,
+    current_user: EditorUser,
 ):
-    record = db.query(GbRecord).filter(GbRecord.id == record_id).first()
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.id == record_id, GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == False)
+    )
+    record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
-    before = record.__dict__.copy()
+    before = model_to_dict(record)
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(record, k, v)
-    _add_log(db, record.guestbook_id, record_id, "UPDATE", before=before, after=record.__dict__)
-    db.commit()
+    record.updated_at = utcnow()
+    write_audit_log(db, current_user.id, "gb_records", record_id, "UPDATE",
+                    guestbook_id=record.guestbook_id,
+                    operator_name=current_user.username,
+                    before=before, after=body.model_dump(exclude_unset=True))
+    await db.commit()
     return {"message": "已更新"}
 
 
 @router.delete("/gb-records/{record_id}")
-def delete_record(
+async def delete_record(
     record_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    db: DbSession,
+    current_user: OwnerUser,
 ):
-    record = db.query(GbRecord).filter(GbRecord.id == record_id).first()
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.id == record_id, GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == False)
+    )
+    record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
-    before = record.__dict__.copy()
-    _add_log(db, record.guestbook_id, record_id, "DELETE", before=before)
-    db.delete(record)
-    db.commit()
+    before = model_to_dict(record)
+    record.is_deleted = True
+    record.deleted_at = utcnow()
+    write_audit_log(db, current_user.id, "gb_records", record_id, "DELETE",
+                    guestbook_id=record.guestbook_id,
+                    operator_name=current_user.username, before=before)
+    await db.commit()
     return {"message": "已删除"}
 
 
 @router.patch("/gb-records/{record_id}/check")
-def update_check_status(
+async def update_check_status(
     record_id: int,
+    current_user: EditorUser,
+    db: DbSession,
     checked: bool = Query(...),
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
 ):
-    record = db.query(GbRecord).filter(GbRecord.id == record_id).first()
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.id == record_id, GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == False)
+    )
+    record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
     record.check_status = "checked" if checked else "unchecked"
-    db.commit()
+    record.updated_at = utcnow()
+    await db.commit()
     return {"message": "已更新"}
 
 
 @router.post("/gb-records/batch-check")
-def batch_check(
+async def batch_check(
     body: BatchCheckRequest,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    db: DbSession,
+    current_user: EditorUser,
 ):
-    status = "checked" if body.checked else "unchecked"
-    for rid in body.ids:
-        record = db.query(GbRecord).filter(GbRecord.id == rid).first()
-        if record:
-            record.check_status = status
-    db.commit()
+    new_status = "checked" if body.checked else "unchecked"
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.id.in_(body.ids), GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == False)
+    )
+    records = result.scalars().all()
+    for record in records:
+        record.check_status = new_status
+        record.updated_at = utcnow()
+    await db.commit()
     return {"message": "已批量更新"}
 
 
-@router.get("/guestbooks/{gb_id}/account-summary")
-def account_summary(
+@router.get("/guestbooks/{gb_id}/account-summary", response_model=list[AccountSummaryItem])
+async def account_summary(
     gb_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: CurrentUser,
+    db: DbSession,
 ):
-    records = db.query(GbRecord).filter(GbRecord.guestbook_id == gb_id).all()
-    summary: dict[int, dict] = {}
-    for r in records:
-        if r.account_id is None:
-            continue
-        if r.account_id not in summary:
-            summary[r.account_id] = {"record_count": 0, "total_amount": 0}
-        summary[r.account_id]["record_count"] += 1
-        summary[r.account_id]["total_amount"] += r.amount
-    return summary
+    stmt = (
+        select(
+            GbRecord.account_id,
+            func.count(GbRecord.id).label("record_count"),
+            func.sum(GbRecord.amount).label("total_amount"),
+        )
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
+               GbRecord.account_id.isnot(None), GbRecord.is_deleted == False)
+        .group_by(GbRecord.account_id)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    items = []
+    for account_id, record_count, total_amount in rows:
+        acc_result = await db.execute(select(PaymentAccount).where(PaymentAccount.id == account_id))
+        account = acc_result.scalar_one_or_none()
+        items.append(AccountSummaryItem(
+            account_id=account_id,
+            account_name=account.name if account else "未知账户",
+            record_count=record_count,
+            total_amount=total_amount,
+        ))
+    return items

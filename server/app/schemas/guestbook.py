@@ -1,33 +1,42 @@
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+GuestbookStatus = Literal["active", "closing", "archived"]
+EventType = Literal["wedding", "birthday", "fullmoon", "housewarming", "graduation", "funeral", "holiday", "other"]
 
 
 class GuestbookCreate(BaseModel):
-    name: str
-    event_type: str
+    name: str = Field(..., max_length=100)
+    event_type: EventType
     event_date: date
-    status: str = "收礼中"
+    host_person_id: int | None = None
     operator_note: str | None = None
 
 
 class GuestbookUpdate(BaseModel):
-    name: str | None = None
-    event_type: str | None = None
+    name: str | None = Field(None, max_length=100)
+    event_type: EventType | None = None
     event_date: date | None = None
-    status: str | None = None
+    host_person_id: int | None = None
     operator_note: str | None = None
 
 
 class GuestbookResponse(BaseModel):
     id: int
+    owner_id: int
     name: str
     event_type: str
     event_date: date
     status: str
-    created_at: datetime
-    completed_at: datetime | None = None
+    host_person_id: int | None = None
     operator_note: str | None = None
+    closing_at: datetime | None = None
+    archived_at: datetime | None = None
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

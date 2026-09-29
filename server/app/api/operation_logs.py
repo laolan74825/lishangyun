@@ -1,39 +1,32 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Query
+from sqlalchemy import select
 
-from app.core.dependencies import get_current_user
-from app.database import get_db
+from app.core.dependencies import CurrentUser, DbSession
+from app.core.helpers import paginate_query
 from app.models.operation_log import OperationLog
-from app.models.user import User
+from app.schemas.common import PaginatedResponse
+from app.schemas.operation_log import OperationLogResponse
 
-router = APIRouter(tags=["operation-logs"])
+router = APIRouter(prefix="/operation-logs", tags=["operation-logs"])
 
 
-@router.get("/guestbooks/{gb_id}/operation-logs")
-def list_logs(
-    gb_id: int,
-    limit: int = Query(100, ge=1, le=500),
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+@router.get("/", response_model=PaginatedResponse[OperationLogResponse])
+async def list_logs(
+    current_user: CurrentUser,
+    db: DbSession,
+    guestbook_id: int | None = None,
+    target_table: str | None = None,
+    target_id: int | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
 ):
-    logs = (
-        db.query(OperationLog)
-        .filter(OperationLog.guestbook_id == gb_id)
-        .order_by(OperationLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "id": log.id,
-            "guestbook_id": log.guestbook_id,
-            "gb_record_id": log.gb_record_id,
-            "action_type": log.action_type,
-            "operator_name": log.operator_name,
-            "client_id": log.client_id,
-            "before_data": log.before_data,
-            "after_data": log.after_data,
-            "created_at": log.created_at.isoformat() if log.created_at else None,
-        }
-        for log in logs
-    ]
+    stmt = select(OperationLog).where(OperationLog.owner_id == current_user.id)
+    if guestbook_id is not None:
+        stmt = stmt.where(OperationLog.guestbook_id == guestbook_id)
+    if target_table is not None:
+        stmt = stmt.where(OperationLog.target_table == target_table)
+    if target_id is not None:
+        stmt = stmt.where(OperationLog.target_id == target_id)
+    stmt = stmt.order_by(OperationLog.created_at.desc())
+    items, pagination = await paginate_query(db, stmt, page, page_size)
+    return PaginatedResponse(items=items, pagination=pagination)

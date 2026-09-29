@@ -13,3 +13,25 @@ class TransactionSummaryByName(BaseModel):
     total_out: int
     total_in: int
     net: int
+
+
+class MonthlyTrendItem(BaseModel):
+    month: str
+    received: int
+    sent: int
+
+
+class EventDistributionItem(BaseModel):
+    event_type: str
+    total_amount: int
+    record_count: int
+
+
+class GuestbookStatsItem(BaseModel):
+    guestbook_id: int
+    guestbook_name: str
+    event_type: str
+    event_date: str
+    total_records: int
+    total_amount: int
+    checked_count: int

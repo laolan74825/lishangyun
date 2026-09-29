@@ -7,7 +7,7 @@ export default function PaymentMethodSelector({
   disabled
 }: {
   value: PaymentMethod | ''
-  onChange: (v: PaymentMethod) => void
+  onChange: (v: PaymentMethod | '') => void
   disabled?: boolean
 }) {
   const methods: { value: PaymentMethod; label: string; icon: string }[] = [
@@ -22,8 +22,8 @@ export default function PaymentMethodSelector({
           key={m.value}
           type="button"
           disabled={disabled}
-          onClick={() => onChange(m.value)}
-          className={`flex flex-col items-center gap-1 rounded-btn py-3 transition-all ${
+          onClick={() => onChange(value === m.value ? '' : m.value)}
+          className={`flex items-center justify-center gap-2 rounded-btn py-3 transition-all ${
             value === m.value
               ? 'bg-primary text-white shadow-md'
               : 'border border-line bg-white text-ink-secondary hover:border-primary'

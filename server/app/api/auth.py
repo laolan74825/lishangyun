@@ -1,14 +1,16 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from sqlalchemy import func, select
 
 from app.core.crypto import decrypt_value, encrypt_value
-from app.core.dependencies import get_current_user
-from app.core.email_service import send_reset_email
-from app.core.security import create_access_token, hash_password, verify_password
-from app.database import get_db
+from app.core.dependencies import CurrentUser, DbSession, get_current_user
+from app.core.email_service import send_reset_email, send_verification_email
+from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
+from app.core.time import utcnow
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.reset_code import ResetCode
+from app.models.security_email import SecurityEmail
 from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.schemas.auth import (
@@ -17,6 +19,7 @@ from app.schemas.auth import (
     PasswordResetConfirm,
     PasswordResetRequest,
     RegisterRequest,
+    SendVerificationCodeRequest,
     TokenResponse,
     UserInfo,
 )
@@ -24,82 +27,208 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+@router.get("/status")
+async def auth_status(db: DbSession):
+    """Check if system needs initialization (no users exist)."""
+    result = await db.execute(select(func.count(User.id)).where(User.is_deleted == False))
+    user_count = result.scalar()
+    return {"needs_init": user_count == 0, "user_count": user_count}
+
+
+async def _get_smtp_config(db: DbSession) -> tuple[str, int, str, str]:
+    keys = ("smtp_host", "smtp_port", "smtp_user", "smtp_password_enc")
+    rows = {}
+    for key in keys:
+        result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
+        row = result.scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=400, detail="邮件服务未配置，请联系管理员")
+        rows[key] = row.value
+    return rows["smtp_host"], int(rows["smtp_port"]), rows["smtp_user"], decrypt_value(rows["smtp_password_enc"])
+
+
+@router.post("/send-verification-code")
+async def send_email_verification_code(
+    body: SendVerificationCodeRequest,
+    db: DbSession,
+):
+    email = body.email.strip().lower()
+
+    result = await db.execute(
+        select(EmailVerificationCode).where(
+            EmailVerificationCode.email == email,
+            EmailVerificationCode.used == False,
+            EmailVerificationCode.expires_at > utcnow(),
+        )
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=429, detail="验证码已发送，请查看邮箱或稍后再试")
+
+    smtp_host, smtp_port, smtp_user, smtp_pass = await _get_smtp_config(db)
+
+    code = "".join(__import__("random").choices("0123456789", k=6))
+    verification_code = EmailVerificationCode(
+        email=email,
+        code=code,
+        expires_at=utcnow() + timedelta(minutes=1),
+    )
+    db.add(verification_code)
+    await db.commit()
+
+    try:
+        send_verification_email(email, code, smtp_host, smtp_port, smtp_user, smtp_pass)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"邮件发送失败: {str(e)}")
+
+    return {"message": "验证码已发送"}
+
+
+async def _verify_email_code(db: DbSession, email: str, code: str) -> None:
+    result = await db.execute(
+        select(EmailVerificationCode).where(
+            EmailVerificationCode.email == email,
+            EmailVerificationCode.code == code,
+            EmailVerificationCode.used == False,
+            EmailVerificationCode.expires_at > utcnow(),
+        )
+    )
+    verification_code = result.scalar_one_or_none()
+    if not verification_code:
+        raise HTTPException(status_code=400, detail="邮箱验证码无效或已过期")
+    verification_code.used = True
+
+
 @router.post("/register", response_model=TokenResponse)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
-    user_count = db.query(User).count()
-    if user_count > 0:
-        raise HTTPException(status_code=400, detail="系统已有管理员，请联系管理员创建账户")
+async def register(body: RegisterRequest, db: DbSession):
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == "open_registration")
+    )
+    setting = result.scalar_one_or_none()
+    if setting and setting.value == "false":
+        raise HTTPException(status_code=400, detail="系统注册功能已关闭，请联系管理员")
+
+    await _verify_email_code(db, body.security_email_1, body.security_email_1_code)
+
+    if body.security_email_2:
+        if not body.security_email_2_code:
+            raise HTTPException(status_code=400, detail="备用安全邮箱需要提供验证码")
+        await _verify_email_code(db, body.security_email_2, body.security_email_2_code)
+
+    result = await db.execute(select(User).where(User.is_deleted == False))
+    existing_users = result.scalars().all()
+    role = "super_admin" if len(existing_users) == 0 else "user"
 
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
-        role="admin",
+        role=role,
+        nickname=body.nickname,
         is_active=True,
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    await db.flush()
+
+    security_email_1 = SecurityEmail(
+        user_id=user.id,
+        email=body.security_email_1,
+        is_primary=True,
+        is_verified=True,
+    )
+    db.add(security_email_1)
+
+    if body.security_email_2:
+        security_email_2 = SecurityEmail(
+            user_id=user.id,
+            email=body.security_email_2,
+            is_primary=False,
+            is_verified=True,
+        )
+        db.add(security_email_2)
+
+    await db.commit()
+    await db.refresh(user)
 
     token = create_access_token({"sub": str(user.id), "role": user.role})
     return TokenResponse(access_token=token, user=UserInfo.model_validate(user))
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == body.username).first()
+async def login(body: LoginRequest, db: DbSession):
+    result = await db.execute(
+        select(User).where(User.username == body.username, User.is_deleted == False)
+    )
+    user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账户已被禁用")
+
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
+        await db.commit()
 
     token = create_access_token({"sub": str(user.id), "role": user.role})
     return TokenResponse(access_token=token, user=UserInfo.model_validate(user))
 
 
 @router.get("/me", response_model=UserInfo)
-def me(current_user: User = Depends(get_current_user)):
+async def me(current_user: CurrentUser):
     return UserInfo.model_validate(current_user)
 
 
 @router.put("/password")
-def change_password(
+async def change_password(
     body: ChangePasswordRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: CurrentUser,
+    db: DbSession,
 ):
     if not verify_password(body.old_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="原密码错误")
     current_user.password_hash = hash_password(body.new_password)
-    db.commit()
+    await db.commit()
     return {"message": "密码已修改"}
 
 
 @router.post("/password-reset/request")
-def request_reset(
+async def request_reset(
     body: PasswordResetRequest,
     bg: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: DbSession,
 ):
-    user = db.query(User).filter(User.email == body.email).first()
-    if not user:
-        return {"message": "如果该邮箱已注册，验证码将稍后发送"}
+    result = await db.execute(
+        select(SecurityEmail).where(
+            SecurityEmail.email == body.email,
+            SecurityEmail.is_verified == True,
+        )
+    )
+    security_email = result.scalar_one_or_none()
+    if not security_email:
+        return {"message": "如果该邮箱已注册并验证，验证码将稍后发送"}
 
-    smtp_host_row = db.query(SystemSetting).filter(SystemSetting.key == "smtp_host").first()
-    smtp_port_row = db.query(SystemSetting).filter(SystemSetting.key == "smtp_port").first()
-    smtp_user_row = db.query(SystemSetting).filter(SystemSetting.key == "smtp_user").first()
-    smtp_pass_row = db.query(SystemSetting).filter(SystemSetting.key == "smtp_password_enc").first()
+    result = await db.execute(
+        select(User).where(User.id == security_email.user_id, User.is_deleted == False)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        return {"message": "如果该邮箱已注册并验证，验证码将稍后发送"}
+
+    smtp_host_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_host"))).scalar_one_or_none()
+    smtp_port_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_port"))).scalar_one_or_none()
+    smtp_user_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_user"))).scalar_one_or_none()
+    smtp_pass_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_password_enc"))).scalar_one_or_none()
 
     if not all([smtp_host_row, smtp_port_row, smtp_user_row, smtp_pass_row]):
         raise HTTPException(status_code=400, detail="邮件服务未配置，请联系管理员")
 
     code = "".join(__import__("random").choices("0123456789", k=6))
     reset_code = ResetCode(
+        user_id=user.id,
         email=body.email,
         code=code,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        expires_at=utcnow() + timedelta(minutes=1),
     )
     db.add(reset_code)
-    db.commit()
+    await db.commit()
 
     bg.add_task(
         send_reset_email,
@@ -114,28 +243,40 @@ def request_reset(
 
 
 @router.post("/password-reset/confirm")
-def confirm_reset(
+async def confirm_reset(
     body: PasswordResetConfirm,
-    db: Session = Depends(get_db),
+    db: DbSession,
 ):
-    reset_code = (
-        db.query(ResetCode)
-        .filter(
+    result = await db.execute(
+        select(ResetCode).where(
             ResetCode.email == body.email,
             ResetCode.code == body.code,
             ResetCode.used == False,
-            ResetCode.expires_at > datetime.now(timezone.utc),
+            ResetCode.expires_at > utcnow(),
         )
-        .first()
     )
+    reset_code = result.scalar_one_or_none()
     if not reset_code:
         raise HTTPException(status_code=400, detail="验证码无效或已过期")
 
-    user = db.query(User).filter(User.email == body.email).first()
+    result = await db.execute(
+        select(SecurityEmail).where(
+            SecurityEmail.email == body.email,
+            SecurityEmail.is_verified == True,
+        )
+    )
+    security_email = result.scalar_one_or_none()
+    if not security_email:
+        raise HTTPException(status_code=400, detail="该邮箱未验证或不存在")
+
+    result = await db.execute(
+        select(User).where(User.id == security_email.user_id, User.is_deleted == False)
+    )
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail="用户不存在")
 
     user.password_hash = hash_password(body.new_password)
     reset_code.used = True
-    db.commit()
+    await db.commit()
     return {"message": "密码已重置"}

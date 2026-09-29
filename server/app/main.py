@@ -15,20 +15,27 @@ from app.database import Base, engine
 async def lifespan(app: FastAPI):
     # Import all models to register them with Base.metadata
     from app.models import (  # noqa: F401
+        authorization_action_log,
+        authorization_code,
         daily_record,
+        family_group,
+        family_member,
         gb_record,
         guestbook,
+        guestbook_host,
+        notification,
         operation_log,
         payment_account,
+        pending_approval,
         person,
+        person_balance_adjustment,
         reset_code,
+        security_email,
         system_setting,
         terminal_settings,
         user,
+        user_key_config,
     )
-    # Auto-create tables for SQLite (development mode)
-    if settings.database_url.startswith("sqlite"):
-        Base.metadata.create_all(bind=engine)
     yield
 
 

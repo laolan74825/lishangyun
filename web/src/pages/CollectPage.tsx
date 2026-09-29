@@ -1,64 +1,98 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import NameAutocomplete from '../components/NameAutocomplete'
 import PaymentMethodSelector from '../components/collect/PaymentMethodSelector'
-import AccountSelector from '../components/collect/AccountSelector'
 import DuplicateAlert from '../components/collect/DuplicateAlert'
 import WechatQrPanel from '../components/collect/WechatQrPanel'
 import RecentRecordsPanel from '../components/collect/RecentRecordsPanel'
 import MultiEntryForm from '../components/collect/MultiEntryForm'
+import CollaborationStatus from '../components/collect/CollaborationStatus'
 import type { MultiItem } from '../components/collect/MultiEntryForm'
 import { useAppStore } from '../store/appStore'
-import type { PaymentMethod, PaymentAccount, GbRecord } from '../types'
+import type { PaymentMethod, GbRecord } from '../types'
 import { limitLevel } from '../types'
+import { queryKeys } from '../hooks/queryKeys'
+import { amountToChinese } from '../lib/format'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useGuestbookWebSocket } from '../hooks/useWebSocket'
 import {
-  createGbRecord,
-  createGbRecordBatch,
-  getGuestbookById,
-  getPaymentAccounts,
-  getTerminalSettings,
-  saveTerminalSettings,
-  getRecentRecords,
   checkDuplicateName,
   findDuplicatesByName,
   findRecordByPhone,
   wechatReceivedToday,
-  accountSummary,
-  guestbookSummary,
-  updateGbRecord
 } from '../lib/api-client'
+import {
+  useGuestbook,
+  usePaymentAccounts,
+  useRecentGbRecords,
+  useTerminalSettings,
+  useCreateGbRecord,
+  useCreateGbRecordBatch,
+  useUpdateGbRecord,
+} from '../hooks/useQueries'
 
 export default function CollectPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id } = useParams({ strict: false }) as { id: string }
   const navigate = useNavigate()
   const guestbookId = Number(id)
+  const queryClient = useQueryClient()
 
   const clientId = useAppStore((s) => s.clientId)
   const operatorName = useAppStore((s) => s.operatorName)
   const setOperatorName = useAppStore((s) => s.setOperatorName)
 
-  // 从全局设置或终端设置初始化记账员姓名
   useEffect(() => {
     if (operatorName) return
     try {
       const raw = localStorage.getItem('gr_operator_name')
-      if (raw) {
-        setOperatorName(raw)
-      }
+      if (raw) setOperatorName(raw)
     } catch { /* ignore */ }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ---------- 页面状态 ---------- */
-  const [guestbook, setGuestbook] = useState<Awaited<ReturnType<typeof getGuestbookById>>>(undefined)
-  const [allAccounts, setAllAccounts] = useState<PaymentAccount[]>([])
-  const [recentRecords, setRecentRecords] = useState<GbRecord[]>([])
-  const [terminalSettings, setTerminalSettings] = useState<Awaited<ReturnType<typeof getTerminalSettings>>>(undefined)
+  /* ---------- TanStack Query 数据 ---------- */
+  const { data: guestbook } = useGuestbook(guestbookId)
+  const { data: allAccounts = [] } = usePaymentAccounts()
+  const { data: recentRecords = [] } = useRecentGbRecords(guestbookId, 50)
+  const { data: terminalSettings } = useTerminalSettings(guestbookId, 'default')
+
+  /* ---------- WebSocket 协作 ---------- */
+  useGuestbookWebSocket(guestbookId)
+
+  /* ---------- Mutations ---------- */
+  const createMutation = useCreateGbRecord()
+  const batchMutation = useCreateGbRecordBatch()
+  const updateRecordMutation = useUpdateGbRecord()
+
+  const invalidateAfterMutation = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.recent(guestbookId) })
+    queryClient.invalidateQueries({ queryKey: queryKeys.stats.guestbookSummary(guestbookId) })
+    queryClient.invalidateQueries({ queryKey: queryKeys.stats.accountSummary(guestbookId) })
+  }, [queryClient, guestbookId])
+
+  /* ---------- 微信限额计算（手动，非 hook） ---------- */
   const [limitMap, setLimitMap] = useState<Map<number, { remainingFen: number; level: ReturnType<typeof limitLevel> }>>(new Map())
-  const [summary, setSummary] = useState({ total_records: 0, total_amount: 0, checked_count: 0, unchecked_count: 0 })
-  const [accSummary, setAccSummary] = useState<Map<number, { record_count: number; total_amount: number }>>(new Map())
+  const today = dayjs().format('YYYY-MM-DD')
+
+  const refreshLimits = useCallback(async () => {
+    if (!guestbookId || isNaN(guestbookId)) return
+    const lm = new Map<number, { remainingFen: number; level: ReturnType<typeof limitLevel> }>()
+    for (const a of allAccounts) {
+      if (a.type !== 'wechat' || !a.is_active) continue
+      const received = await wechatReceivedToday(a.id!, today, guestbookId)
+      const remainingFen = a.daily_limit - received
+      lm.set(a.id!, { remainingFen, level: limitLevel(remainingFen) })
+    }
+    setLimitMap(lm)
+  }, [guestbookId, allAccounts, today])
+
+  useEffect(() => {
+    if (allAccounts.length > 0) refreshLimits()
+  }, [allAccounts.length, today]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- 表单状态 ---------- */
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
@@ -67,7 +101,7 @@ export default function CollectPage() {
   const [phone, setPhone] = useState('')
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
-  const [recordTime, setRecordTime] = useState(dayjs().format('YYYY-MM-DDTHH:mm:ss'))
+  const [recordTime, setRecordTime] = useState('')
   const [activeTab, setActiveTab] = useState<'single' | 'multi'>('single')
   const [multiItems, setMultiItems] = useState<MultiItem[]>([])
   const [agentName, setAgentName] = useState('')
@@ -76,54 +110,27 @@ export default function CollectPage() {
   /* ---------- UI 状态 ---------- */
   const [page, setPage] = useState(1)
   const [duplicateRecords, setDuplicateRecords] = useState<GbRecord[] | null>(null)
-  const [pendingSubmit, setPendingSubmit] = useState<(() => void) | null>(null)
+  const [selectedRecordIds, setSelectedRecordIds] = useState<number[]>([])
+  const [duplicateNewNote, setDuplicateNewNote] = useState('')
+  const [duplicateExistingNotes, setDuplicateExistingNotes] = useState<Map<number, string>>(new Map())
   const { toast, showToast } = useToast()
-  const [loading, setLoading] = useState(false)
+
+  const toggleRecordSelection = (id: number) => {
+    setSelectedRecordIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const clearSelection = () => {
+    setSelectedRecordIds([])
+  }
 
   /* ---------- 编辑原有记录弹窗（F-2.21） ---------- */
   const [editingRecord, setEditingRecord] = useState<GbRecord | null>(null)
   const [editAmount, setEditAmount] = useState('')
   const [editNote, setEditNote] = useState('')
-  const [editSubmitting, setEditSubmitting] = useState(false)
 
-  const today = dayjs().format('YYYY-MM-DD')
   const pageSize = 5
-
-  /* ---------- 初始化加载 ---------- */
-  const reload = useCallback(async () => {
-    if (!guestbookId || isNaN(guestbookId)) return
-    const gb = await getGuestbookById(guestbookId)
-    setGuestbook(gb)
-
-    const accounts = await getPaymentAccounts()
-    setAllAccounts(accounts)
-
-    const settings = await getTerminalSettings(guestbookId, clientId)
-    setTerminalSettings(settings)
-
-    // 计算微信限额
-    const lm = new Map<number, { remainingFen: number; level: ReturnType<typeof limitLevel> }>()
-    for (const a of accounts) {
-      if (a.type !== 'wechat' || !a.is_active) continue
-      const received = await wechatReceivedToday(a.id!, today, guestbookId)
-      const remainingFen = a.daily_limit - received
-      lm.set(a.id!, { remainingFen, level: limitLevel(remainingFen) })
-    }
-    setLimitMap(lm)
-
-    const rec = await getRecentRecords(guestbookId, 50)
-    setRecentRecords(rec)
-
-    const sum = await guestbookSummary(guestbookId)
-    setSummary(sum)
-
-    const accSum = await accountSummary(guestbookId)
-    setAccSummary(accSum)
-  }, [guestbookId, clientId, today])
-
-  useEffect(() => {
-    reload()
-  }, [reload])
 
   /* ---------- 默认收款人逻辑 ---------- */
   useEffect(() => {
@@ -133,15 +140,27 @@ export default function CollectPage() {
       setAccountId('')
       return
     }
-    const defaultId = type === 'cash'
+    const typeAccounts = allAccounts.filter((a) => a.type === type)
+    if (typeAccounts.length === 0) return
+
+    // 1. 礼簿终端默认（礼簿账户设置中单独配置的）
+    const terminalDefaultId = type === 'cash'
       ? terminalSettings?.default_cash_account
       : terminalSettings?.default_wechat_account
-    if (defaultId && allAccounts.find((a) => a.id === defaultId && a.type === type && a.is_active)) {
-      setAccountId(defaultId)
+    if (terminalDefaultId && typeAccounts.some((a) => a.id === terminalDefaultId)) {
+      setAccountId(terminalDefaultId)
       return
     }
-    const first = allAccounts.find((a) => a.type === type && a.is_active)
-    if (first) setAccountId(first.id!)
+
+    // 2. 系统级默认（账户设置中设为默认值的）
+    const systemDefault = typeAccounts.find((a) => a.is_active)
+    if (systemDefault) {
+      setAccountId(systemDefault.id!)
+      return
+    }
+
+    // 3. 兜底：第一个同类型账户
+    setAccountId(typeAccounts[0].id!)
   }, [paymentMethod, terminalSettings, allAccounts])
 
   const selectedAccount = useMemo(() => {
@@ -156,10 +175,16 @@ export default function CollectPage() {
     if (hasDup) {
       const dups = await findDuplicatesByName(guestbookId, guestName.trim())
       setDuplicateRecords(dups)
+      setDuplicateNewNote(note)
+      const notesMap = new Map<number, string>()
+      dups.forEach((r) => {
+        if (r.id) notesMap.set(r.id, r.note ?? '')
+      })
+      setDuplicateExistingNotes(notesMap)
       return true
     }
     return false
-  }, [guestName, guestbookId])
+  }, [guestName, guestbookId, note])
 
   const handlePhoneMatch = useCallback(async () => {
     if (!phone.trim() || !guestbookId) return undefined
@@ -167,84 +192,96 @@ export default function CollectPage() {
   }, [phone, guestbookId])
 
   /* ---------- 提交 ---------- */
-  const doSubmit = async () => {
+  const doSubmit = async (noteOverride?: string) => {
     if (!operatorName.trim()) {
       showToast('请先设置记账员姓名')
       return
     }
 
-    setLoading(true)
-    try {
-      if (activeTab === 'multi') {
-        if (!guestbookId || multiItems.length === 0) {
-          showToast('请添加宾客记录')
-          return
+    const finalNote = noteOverride !== undefined ? noteOverride : note
+
+    if (activeTab === 'multi') {
+      if (!guestbookId || multiItems.length === 0) {
+        showToast('请添加宾客记录')
+        return
+      }
+      const validItems = multiItems.filter((b) => b.guest_name.trim() && b.amount)
+      if (validItems.length === 0) {
+        showToast('请填写宾客姓名和金额')
+        return
+      }
+      const inputs = validItems.map((b) => {
+        const pm = (b.payment_method || bulkPaymentMethod) as PaymentMethod
+        if (!pm) {
+          throw new Error(`宾客「${b.guest_name.trim()}」未选择收款方式`)
         }
-        const validItems = multiItems.filter((b) => b.guest_name.trim() && b.amount)
-        if (validItems.length === 0) {
-          showToast('请填写宾客姓名和金额')
-          return
-        }
-        const inputs = validItems.map((b) => {
-          const pm = (b.payment_method || bulkPaymentMethod) as PaymentMethod
-          if (!pm) {
-            throw new Error(`宾客「${b.guest_name.trim()}」未选择收款方式`)
-          }
-          return {
-            guestbook_id: guestbookId,
-            guest_name: b.guest_name.trim(),
-            phone: b.phone.trim() || undefined,
-            amount: Math.round(parseFloat(b.amount) * 100),
-            payment_method: pm,
-            account_id: b.account_id as number,
-            note: b.note.trim() || undefined,
-            agent_name: agentName.trim() || undefined,
-            client_id: clientId,
-            operator_name: operatorName.trim()
-          }
-        })
-        await createGbRecordBatch(inputs)
-        showToast(`成功录入 ${inputs.length} 笔，合计 ¥${(inputs.reduce((s, i) => s + i.amount, 0) / 100).toFixed(2)}`)
-        setMultiItems([])
-        setAgentName('')
-        setBulkPaymentMethod('')
-      } else {
-        if (!paymentMethod || !guestName.trim() || !amount) {
-          showToast('请填写完整信息')
-          return
-        }
-        const amountFen = Math.round(parseFloat(amount) * 100)
-        if (isNaN(amountFen) || amountFen <= 0) {
-          showToast('金额无效')
-          return
-        }
-        await createGbRecord({
+        return {
           guestbook_id: guestbookId,
-          guest_name: guestName.trim(),
-          phone: phone.trim() || undefined,
-          amount: amountFen,
-          payment_method: paymentMethod,
-          account_id: accountId as number,
-          note: note.trim() || undefined,
-          record_time: recordTime ? dayjs(recordTime).format('YYYY-MM-DDTHH:mm:ss') : undefined,
+          guest_name: b.guest_name.trim(),
+          phone: b.phone.trim() || undefined,
+          amount: Math.round(parseFloat(b.amount) * 100),
+          payment_method: pm,
+          account_id: b.account_id as number,
+          note: b.note.trim() || undefined,
+          agent_name: agentName.trim() || undefined,
           client_id: clientId,
           operator_name: operatorName.trim()
-        })
-        showToast('收礼记录已保存')
-        setGuestName('')
-        setPhone('')
-        setAmount('')
-        setNote('')
+        }
+      })
+      batchMutation.mutate(inputs, {
+        onSuccess: (_ids, items) => {
+          showToast(`成功录入 ${items.length} 笔，合计 ¥${(items.reduce((s, i) => s + i.amount, 0) / 100).toFixed(2)}`)
+          setMultiItems([])
+          setAgentName('')
+          setBulkPaymentMethod('')
+          setPaymentMethod('')
+          setRecordTime('')
+          setDuplicateRecords(null)
+          setPage(1)
+          invalidateAfterMutation()
+          refreshLimits()
+        },
+        onError: (e) => showToast('保存失败：' + e.message),
+      })
+    } else {
+      if (!paymentMethod || !guestName.trim() || !amount) {
+        showToast('请填写完整信息')
+        return
       }
-
-      setDuplicateRecords(null)
-      setPendingSubmit(null)
-      await reload()
-      setPage(1)
-    } catch (e) {
-      showToast('保存失败：' + (e as Error).message)
-    } finally {
-      setLoading(false)
+      const amountFen = Math.round(parseFloat(amount) * 100)
+      if (isNaN(amountFen) || amountFen <= 0) {
+        showToast('金额无效')
+        return
+      }
+      createMutation.mutate({
+        guestbook_id: guestbookId,
+        guest_name: guestName.trim(),
+        phone: phone.trim() || undefined,
+        amount: amountFen,
+        payment_method: paymentMethod,
+        account_id: accountId as number,
+        note: finalNote.trim() || undefined,
+        agent_name: agentName.trim() || undefined,
+        record_time: recordTime ? dayjs(recordTime).format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss'),
+        client_id: clientId,
+        operator_name: operatorName.trim()
+      }, {
+        onSuccess: () => {
+          showToast('收礼记录已保存')
+          setGuestName('')
+          setPhone('')
+          setAmount('')
+          setNote('')
+          setAgentName('')
+          setPaymentMethod('')
+          setRecordTime('')
+          setDuplicateRecords(null)
+          setPage(1)
+          invalidateAfterMutation()
+          refreshLimits()
+        },
+        onError: (e) => showToast('保存失败：' + e.message),
+      })
     }
   }
 
@@ -259,7 +296,6 @@ export default function CollectPage() {
     }
     const hasDup = await handleCheckDuplicate()
     if (hasDup) {
-      setPendingSubmit(() => doSubmit)
       return
     }
     await doSubmit()
@@ -285,67 +321,53 @@ export default function CollectPage() {
     }, 0)
   }, [multiItems])
 
-  /* ---------- 收款人筛选 ---------- */
-  const filteredAccounts = useMemo(() => {
-    if (!paymentMethod) return []
-    const type = paymentMethod === 'cash' ? 'cash' : paymentMethod === 'wechat' ? 'wechat' : undefined
-    if (!type) return []
-    return allAccounts.filter((a) => a.type === type && a.is_active)
-  }, [paymentMethod, allAccounts])
-
-  /* ---------- 保存默认收款人 ---------- */
-  const saveDefaultAccount = async () => {
-    if (!accountId || !guestbookId) return
-    const type = selectedAccount?.type
-    if (!type) return
-    const current = terminalSettings ?? {
-      guestbook_id: guestbookId,
-      client_id: clientId,
-      operator_name: operatorName
-    }
-    await saveTerminalSettings({
-      ...current,
-      guestbook_id: guestbookId,
-      client_id: clientId,
-      operator_name: operatorName || current.operator_name || '未命名',
-      ...(type === 'cash' ? { default_cash_account: accountId } : { default_wechat_account: accountId })
-    })
-    showToast('已设为默认收款人')
-    const s = await getTerminalSettings(guestbookId, clientId)
-    setTerminalSettings(s)
-  }
-
   /* ---------- 编辑原有记录（F-2.21） ---------- */
   const openEditExisting = (record: GbRecord) => {
     setEditingRecord(record)
     setEditAmount((record.amount / 100).toString())
     setEditNote(record.note ?? '')
     setDuplicateRecords(null)
-    setPendingSubmit(null)
   }
 
-  const handleEditSubmit = async () => {
+  const handleEditSubmit = () => {
     if (!editingRecord?.id) return
     const amountFen = Math.round(parseFloat(editAmount) * 100)
     if (isNaN(amountFen) || amountFen <= 0) {
       showToast('金额无效')
       return
     }
-    setEditSubmitting(true)
-    try {
-      await updateGbRecord(editingRecord.id, {
+    updateRecordMutation.mutate({
+      id: editingRecord.id,
+      changes: {
         amount: amountFen,
         note: editNote.trim() || undefined
-      }, operatorName, clientId)
-      showToast('记录已更新')
-      setEditingRecord(null)
-      await reload()
-    } catch (e) {
-      showToast('更新失败：' + (e as Error).message)
-    } finally {
-      setEditSubmitting(false)
-    }
+      },
+      operatorName,
+      clientId,
+    }, {
+      onSuccess: () => {
+        showToast('记录已更新')
+        setEditingRecord(null)
+        invalidateAfterMutation()
+        refreshLimits()
+      },
+      onError: (e) => showToast('更新失败：' + e.message),
+    })
   }
+
+  const isPending = createMutation.isPending || batchMutation.isPending
+
+  /* ---------- 键盘快捷键 ---------- */
+  const collectShortcuts = useMemo(() => [
+    { key: 'Enter', handler: () => { handleSubmit() }, description: '提交记录' },
+    { key: '1', handler: () => setPaymentMethod('cash'), description: '现金支付' },
+    { key: '2', handler: () => setPaymentMethod('wechat'), description: '微信支付' },
+    { key: '3', handler: () => setPaymentMethod('other'), description: '其他支付' },
+    { key: 'n', ctrl: true, handler: () => navigate({ to: '/guestbooks/new' }), description: '新建礼簿' },
+    { key: 'Escape', handler: () => navigate({ to: '/guestbooks/$id', params: { id: String(guestbookId) } }), description: '返回详情' },
+  ], [handleSubmit, navigate, guestbookId])
+
+  useKeyboardShortcuts(collectShortcuts, activeTab === 'single')
 
   /* ---------- 渲染 ---------- */
   if (!guestbookId || isNaN(guestbookId)) {
@@ -359,13 +381,14 @@ export default function CollectPage() {
   return (
     <PageScaffold
       title={guestbook?.name ?? '现场收礼'}
-      description={`${guestbook?.event_type ?? ''} · ${guestbook?.event_date ?? ''} · 共 ${summary.total_records} 笔 ¥${(summary.total_amount / 100).toFixed(2)}`}
+      description={guestbook?.event_date ?? ''}
       actions={
         <div className="flex items-center gap-3">
+          <CollaborationStatus />
           <button
             type="button"
-            onClick={() => navigate(`/guestbooks/${guestbookId}`)}
-            className="rounded-btn border border-line px-3 py-1.5 text-sm font-medium text-ink-secondary hover:border-primary hover:text-primary"
+            onClick={() => navigate({ to: '/guestbooks/$id', params: { id: String(guestbookId) } })}
+            className="rounded-btn bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-deep"
           >
             礼簿详情
           </button>
@@ -382,35 +405,6 @@ export default function CollectPage() {
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         {/* ===== 左侧：收礼表单 ===== */}
         <div className="flex flex-col gap-4">
-          {/* 统计卡片 */}
-          <div className="grid grid-cols-3 gap-3">
-            {(['cash', 'wechat', 'other'] as const).map((pm) => {
-              const label = pm === 'cash' ? '默认现金账户' : pm === 'wechat' ? '默认微信账户' : '其他'
-              const defaultId = pm === 'cash'
-                ? terminalSettings?.default_cash_account
-                : pm === 'wechat'
-                  ? terminalSettings?.default_wechat_account
-                  : undefined
-              const amount = Array.from(accSummary.entries())
-                .filter(([aid]) => {
-                  if (pm === 'other') {
-                    const ac = allAccounts.find((a) => a.id === aid)
-                    return ac && ac.type !== 'cash' && ac.type !== 'wechat'
-                  }
-                  return aid === defaultId
-                })
-                .reduce((s, [, v]) => s + v.total_amount, 0)
-              return (
-                <div key={pm} className="rounded-card bg-card p-3 text-center shadow-card">
-                  <div className="text-caption text-ink-secondary">{label}合计</div>
-                  <div className="mt-1 text-base font-bold text-ink">
-                    {amount > 0 ? `¥${(amount / 100).toFixed(0)}` : '—'}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
           {/* 表单卡片 */}
           <div className="rounded-card bg-card p-5 shadow-card">
             {/* 选项卡 */}
@@ -442,36 +436,17 @@ export default function CollectPage() {
                   <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
                 </label>
 
-                {/* 收款人 */}
+                {/* 收款账户 */}
                 {paymentMethod && paymentMethod !== 'other' && (
                   <div className="mt-4 flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-ink">
-                        {paymentMethod === 'cash' ? '现金收银人' : '微信收款账户'}
-                        <span className="text-danger">*</span>
-                        {paymentMethod === 'wechat' && selectedAccount && limitMap.get(selectedAccount.id!)?.level !== 'normal' && (
-                          <span className="ml-1 text-danger">
-                            {limitMap.get(selectedAccount.id!)?.level === 'exhausted' ? '— 已达限额' : '— 额度不足'}
-                          </span>
-                        )}
-                      </span>
-                      {accountId && (
-                        <button
-                          type="button"
-                          onClick={saveDefaultAccount}
-                          className="text-xs text-info hover:underline"
-                        >
-                          设为默认
-                        </button>
+                    <span className="text-sm font-medium text-ink">
+                      收款账户：<span className="font-bold">{selectedAccount?.name ?? '未选择'}</span>
+                      {paymentMethod === 'wechat' && selectedAccount && limitMap.get(selectedAccount.id!)?.level !== 'normal' && (
+                        <span className="ml-2 text-danger">
+                          {limitMap.get(selectedAccount.id!)?.level === 'exhausted' ? '（已达限额）' : '（额度不足）'}
+                        </span>
                       )}
-                    </div>
-                    <AccountSelector
-                      accounts={filteredAccounts}
-                      value={accountId}
-                      onChange={setAccountId}
-                      limitMap={paymentMethod === 'wechat' ? limitMap : undefined}
-                      defaultAccountId={paymentMethod === 'cash' ? terminalSettings?.default_cash_account : paymentMethod === 'wechat' ? terminalSettings?.default_wechat_account : undefined}
-                    />
+                    </span>
                   </div>
                 )}
 
@@ -509,9 +484,16 @@ export default function CollectPage() {
 
                 {/* 金额 */}
                 <label className="mt-4 flex flex-col gap-2">
-                  <span className="text-sm font-medium text-ink">
-                    金额（元） <span className="text-danger">*</span>
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm font-medium text-ink">
+                      金额（元）：<span className="text-danger">*</span>
+                    </span>
+                    {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && (
+                      <span className="text-sm text-ink-secondary whitespace-nowrap">
+                        {amountToChinese(Math.round(parseFloat(amount) * 100))}
+                      </span>
+                    )}
+                  </div>
                   <input
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -532,15 +514,35 @@ export default function CollectPage() {
                   />
                 </label>
 
-                {/* 记账时间（漏记补记 F-2.25） */}
+                {/* 代理人（代送礼） */}
                 <label className="mt-4 flex flex-col gap-2">
-                  <span className="text-sm font-medium text-ink">记账时间（默认当前，可手动调整）</span>
+                  <span className="text-sm font-medium text-ink">代理人（代他人送礼时填写）</span>
                   <input
-                    type="datetime-local"
-                    value={recordTime}
-                    onChange={(e) => setRecordTime(e.target.value)}
+                    value={agentName}
+                    onChange={(e) => setAgentName(e.target.value)}
+                    placeholder="选填，如：张三代李四"
                     className="h-12 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
                   />
+                </label>
+
+                {/* 记账时间（漏记补记 F-2.25） */}
+                <label className="mt-4 flex flex-col gap-2">
+                  <span className="text-sm font-medium text-ink">记账时间</span>
+                  <div className="relative">
+                    <input
+                      type="datetime-local"
+                      value={recordTime}
+                      onChange={(e) => setRecordTime(e.target.value)}
+                      className={`h-12 w-full rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary ${
+                        !recordTime ? 'text-transparent' : ''
+                      }`}
+                    />
+                    {!recordTime && (
+                      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-base text-ink-secondary">
+                        当前系统值，可手动设置（格式：2026-09-26 14:30）
+                      </span>
+                    )}
+                  </div>
                 </label>
               </>
             ) : (
@@ -562,13 +564,13 @@ export default function CollectPage() {
             <button
               onClick={handleSubmit}
               disabled={
-                loading ||
+                isPending ||
                 (activeTab === 'single' && (!paymentMethod || !guestName.trim() || !amount || (!!paymentMethod && paymentMethod !== 'other' && !accountId))) ||
                 (activeTab === 'multi' && multiItems.filter((b) => b.guest_name.trim() && b.amount).length === 0)
               }
               className="mt-6 h-14 w-full rounded-btn bg-primary text-lg font-bold text-white shadow-md transition-all hover:bg-primary-deep disabled:bg-disabled disabled:shadow-none"
             >
-              {loading ? '保存中…' : activeTab === 'multi' ? `确认多人录入 (${multiItems.filter((b) => b.guest_name.trim() && b.amount).length}人)` : '确认收礼'}
+              {isPending ? '保存中…' : activeTab === 'multi' ? `确认多人录入 (${multiItems.filter((b) => b.guest_name.trim() && b.amount).length}人)` : '确认收礼'}
             </button>
           </div>
         </div>
@@ -580,6 +582,9 @@ export default function CollectPage() {
             page={page}
             pageSize={pageSize}
             onPageChange={setPage}
+            selectedIds={selectedRecordIds}
+            onToggleSelect={toggleRecordSelection}
+            onClearSelection={clearSelection}
           />
         </div>
       </div>
@@ -587,17 +592,59 @@ export default function CollectPage() {
       {/* Toast */}
       <Toast message={toast} onClose={() => showToast(null)} />
 
-      {/* 重名弹窗（F-2.21：含「编辑原有记录」选项） */}
+      {/* 重名弹窗（F-2.21：支持多条重名记录编辑） */}
       {duplicateRecords && (
         <DuplicateAlert
           records={duplicateRecords}
-          onConfirm={() => {
-            setDuplicateRecords(null)
-            pendingSubmit?.()
+          newNote={duplicateNewNote}
+          onNewNoteChange={setDuplicateNewNote}
+          existingNotes={duplicateExistingNotes}
+          onExistingNoteChange={(id, note) => {
+            setDuplicateExistingNotes((prev) => {
+              const next = new Map(prev)
+              next.set(id, note)
+              return next
+            })
+          }}
+          onConfirm={async () => {
+            const updates: Array<{ id: number; note: string }> = []
+            for (const record of duplicateRecords) {
+              if (!record.id) continue
+              const oldNote = record.note ?? ''
+              const newNote = duplicateExistingNotes.get(record.id) ?? ''
+              if (newNote !== oldNote) {
+                updates.push({ id: record.id, note: newNote })
+              }
+            }
+
+            if (updates.length > 0) {
+              try {
+                for (const update of updates) {
+                  await new Promise<void>((resolve, reject) => {
+                    updateRecordMutation.mutate({
+                      id: update.id,
+                      changes: { note: update.note.trim() || undefined },
+                      operatorName,
+                      clientId,
+                    }, {
+                      onSuccess: () => resolve(),
+                      onError: (e) => reject(e),
+                    })
+                  })
+                }
+                setDuplicateRecords(null)
+                doSubmit(duplicateNewNote)
+              } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : '未知错误'
+                showToast('更新原记录备注失败：' + msg)
+              }
+            } else {
+              setDuplicateRecords(null)
+              doSubmit(duplicateNewNote)
+            }
           }}
           onCancel={() => {
             setDuplicateRecords(null)
-            setPendingSubmit(null)
           }}
           onEditExisting={openEditExisting}
         />
@@ -637,10 +684,10 @@ export default function CollectPage() {
               </button>
               <button
                 onClick={handleEditSubmit}
-                disabled={editSubmitting}
+                disabled={updateRecordMutation.isPending}
                 className="flex-1 rounded-btn bg-primary py-2.5 font-medium text-white disabled:bg-disabled"
               >
-                {editSubmitting ? '保存中…' : '保存'}
+                {updateRecordMutation.isPending ? '保存中…' : '保存'}
               </button>
             </div>
           </div>

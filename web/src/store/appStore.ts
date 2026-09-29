@@ -1,76 +1,75 @@
 import { create } from 'zustand'
 import { getClientId } from '../lib/client'
-import type { Guestbook, GbRecord, TerminalSettings, PaymentAccount } from '../types'
+import type { Guestbook, GbRecord, TerminalSettings, PaymentAccount, Notification } from '../types'
 import { limitLevel } from '../types'
 
-/** 同步状态（需求 F-4.7） */
 export type SyncStatus = 'synced' | 'syncing' | 'offline'
 
-/** 微信限额缓存项 */
 export interface WechatLimitItem {
   account: PaymentAccount
   remainingFen: number
   level: 'normal' | 'warning' | 'exhausted'
 }
 
+export interface LockState {
+  isLocked: boolean
+  lockTimeout: number
+  lastActivity: number
+}
+
 interface AppState {
-  /* ---------- 基础标识 ---------- */
-  /** 本终端客户端标识 */
   clientId: string
   syncStatus: SyncStatus
   setSyncStatus: (status: SyncStatus) => void
 
-  /* ---------- 当前会话 ---------- */
-  /** 当前激活的礼簿 */
   currentGuestbook: Guestbook | null
   setCurrentGuestbook: (gb: Guestbook | null) => void
 
-  /** 当前礼簿下的收礼记录列表 */
   gbRecords: GbRecord[]
   setGbRecords: (records: GbRecord[]) => void
   appendGbRecord: (record: GbRecord) => void
   prependGbRecord: (record: GbRecord) => void
 
-  /** 最近 N 条收款记录（现场收礼页展示） */
   lastRecords: GbRecord[]
   setLastRecords: (records: GbRecord[]) => void
 
-  /** 终端记账员姓名 */
   operatorName: string
   setOperatorName: (name: string) => void
 
-  /* ---------- 终端设置 ---------- */
-  /** 当前终端的默认收款人设置 */
   terminalSettings: TerminalSettings | null
   setTerminalSettings: (settings: TerminalSettings | null) => void
 
-  /** 默认现金收款人 ID */
   defaultCashAccountId: number | undefined
   setDefaultCashAccountId: (id: number | undefined) => void
 
-  /** 默认微信收款人 ID */
   defaultWechatAccountId: number | undefined
   setDefaultWechatAccountId: (id: number | undefined) => void
 
-  /* ---------- 微信限额缓存 ---------- */
-  /** 各微信账户剩余额度（用于 UI 标红/置灰） */
   wechatLimitCache: Map<number, WechatLimitItem>
   setWechatLimitCache: (cache: Map<number, WechatLimitItem>) => void
   updateWechatLimitItem: (accountId: number, item: WechatLimitItem) => void
 
-  /* ---------- 全局通知 ---------- */
-  /**  toast 消息队列（简单实现） */
   toastMessage: string | null
   setToastMessage: (msg: string | null) => void
+
+  notifications: Notification[]
+  setNotifications: (notifications: Notification[]) => void
+  addNotification: (notification: Notification) => void
+  markNotificationRead: (id: number) => void
+  markAllNotificationsRead: () => void
+  unreadNotificationCount: () => number
+
+  lockState: LockState
+  setLocked: (locked: boolean) => void
+  setLockTimeout: (minutes: number) => void
+  updateLastActivity: () => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  /* 基础 */
+export const useAppStore = create<AppState>((set, get) => ({
   clientId: getClientId(),
   syncStatus: 'synced',
   setSyncStatus: (syncStatus) => set({ syncStatus }),
 
-  /* 当前会话 */
   currentGuestbook: null,
   setCurrentGuestbook: (currentGuestbook) => set({ currentGuestbook }),
 
@@ -87,7 +86,6 @@ export const useAppStore = create<AppState>((set) => ({
   operatorName: '',
   setOperatorName: (operatorName) => set({ operatorName }),
 
-  /* 终端设置 */
   terminalSettings: null,
   setTerminalSettings: (terminalSettings) => set({ terminalSettings }),
 
@@ -97,7 +95,6 @@ export const useAppStore = create<AppState>((set) => ({
   defaultWechatAccountId: undefined,
   setDefaultWechatAccountId: (defaultWechatAccountId) => set({ defaultWechatAccountId }),
 
-  /* 微信限额 */
   wechatLimitCache: new Map(),
   setWechatLimitCache: (wechatLimitCache) => set({ wechatLimitCache }),
   updateWechatLimitItem: (accountId, item) =>
@@ -107,12 +104,40 @@ export const useAppStore = create<AppState>((set) => ({
       return { wechatLimitCache: next }
     }),
 
-  /* toast */
   toastMessage: null,
-  setToastMessage: (toastMessage) => set({ toastMessage })
+  setToastMessage: (toastMessage) => set({ toastMessage }),
+
+  notifications: [],
+  setNotifications: (notifications) => set({ notifications }),
+  addNotification: (notification) =>
+    set((state) => ({ notifications: [notification, ...state.notifications] })),
+  markNotificationRead: (id) =>
+    set((state) => ({
+      notifications: state.notifications.map((n) =>
+        n.id === id ? { ...n, is_read: true } : n
+      ),
+    })),
+  markAllNotificationsRead: () =>
+    set((state) => ({
+      notifications: state.notifications.map((n) => ({ ...n, is_read: true })),
+    })),
+  unreadNotificationCount: () => {
+    return get().notifications.filter((n) => !n.is_read).length
+  },
+
+  lockState: {
+    isLocked: false,
+    lockTimeout: 30,
+    lastActivity: Date.now(),
+  },
+  setLocked: (isLocked) =>
+    set((state) => ({ lockState: { ...state.lockState, isLocked } })),
+  setLockTimeout: (lockTimeout) =>
+    set((state) => ({ lockState: { ...state.lockState, lockTimeout } })),
+  updateLastActivity: () =>
+    set((state) => ({ lockState: { ...state.lockState, lastActivity: Date.now() } })),
 }))
 
-/** 根据 store 中的当前礼簿和账户 ID，刷新微信限额缓存 */
 export async function refreshWechatLimitCache(
   accounts: PaymentAccount[],
   dateStr: string,
@@ -126,7 +151,7 @@ export async function refreshWechatLimitCache(
     cache.set(ac.id!, {
       account: ac,
       remainingFen,
-      level: limitLevel(remainingFen)
+      level: limitLevel(remainingFen),
     })
   }
   useAppStore.getState().setWechatLimitCache(cache)

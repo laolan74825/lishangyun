@@ -5,7 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      compiler: true,
+    }),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -33,9 +35,18 @@ export default defineConfig({
     })
   ],
   server: {
+    host: '0.0.0.0',
     proxy: {
+      '/api/ws': {
+        target: 'http://localhost:8000',
+        ws: true,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {})
+        },
+      },
       '/api': {
-        target: 'http://localhost:8001',
+        target: 'http://localhost:8000',
         changeOrigin: true,
       },
     },

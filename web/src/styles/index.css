@@ -59,6 +59,10 @@
   --shadow-card: 0 2px 8px rgb(0 0 0 / 0.06);
   --shadow-modal: 0 8px 24px rgb(0 0 0 / 0.12);
   --shadow-qrcode: 0 4px 12px rgb(0 0 0 / 0.08);
+
+  /* 断点 */
+  --breakpoint-md: 768px;
+  --breakpoint-xl: 1280px;
 }
 
 @layer base {

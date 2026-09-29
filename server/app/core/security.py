@@ -1,19 +1,25 @@
 from datetime import datetime, timedelta, timezone
 
-import bcrypt
-from jose import JWTError, jwt
+import jwt
+from passlib.context import CryptContext
 
 from app.config import settings
 
 ALGORITHM = "HS256"
 
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
+
 
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    return pwd_context.hash(plain)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    return pwd_context.verify(plain, hashed)
+
+
+def needs_rehash(hashed: str) -> bool:
+    return pwd_context.needs_update(hashed)
 
 
 def create_access_token(data: dict) -> str:
@@ -26,5 +32,5 @@ def create_access_token(data: dict) -> str:
 def decode_access_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-    except JWTError:
+    except jwt.exceptions.InvalidTokenError:
         return None

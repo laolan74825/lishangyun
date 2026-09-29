@@ -1,10 +1,12 @@
 const TOKEN_KEY = 'gr.access_token'
 const USER_KEY = 'gr.current_user'
 
+export type UserRole = 'super_admin' | 'admin' | 'editor' | 'viewer' | 'auditor'
+
 export interface AuthUser {
   id: number
   username: string
-  role: 'admin' | 'editor' | 'viewer'
+  role: UserRole
   email?: string
 }
 
@@ -30,7 +32,6 @@ export function getCurrentUser(): AuthUser | null {
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
-    // Handle double-serialized data
     if (typeof parsed === 'string') {
       return JSON.parse(parsed)
     }
@@ -42,4 +43,14 @@ export function getCurrentUser(): AuthUser | null {
 
 export function setCurrentUser(user: AuthUser): void {
   localStorage.setItem(USER_KEY, JSON.stringify(user))
+}
+
+export function isAdmin(): boolean {
+  const user = getCurrentUser()
+  return user?.role === 'super_admin' || user?.role === 'admin'
+}
+
+export function hasRole(...roles: UserRole[]): boolean {
+  const user = getCurrentUser()
+  return user ? roles.includes(user.role) : false
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import dayjs from 'dayjs'
 import Toast, { useToast } from './Toast'
 import type { GbRecord, PaymentAccount } from '../types'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import {
   getGbRecordsByGuestbook,
   getPaymentAccounts,
@@ -99,7 +100,7 @@ export default function ReconciliationPanel({
       return
     }
     try {
-      await batchUpdateCheckStatus(Array.from(selectedIds), checked, operatorName, clientId)
+      await batchUpdateCheckStatus(Array.from(selectedIds), checked ? 'checked' : 'unchecked', operatorName, clientId)
       showToast(checked ? `已标记 ${selectedIds.size} 笔为已对账` : `已取消 ${selectedIds.size} 笔对账标记`)
       setSelectedIds(new Set())
       await load()
@@ -114,6 +115,14 @@ export default function ReconciliationPanel({
     if (!id) return '—'
     return accounts.find((a) => a.id === id)?.name ?? '—'
   }
+
+  /* 键盘快捷键 */
+  const reconcileShortcuts = useMemo(() => [
+    { key: ' ', handler: () => { if (selectedIds.size > 0) handleBatchCheck(true) }, description: '标记已对账' },
+    { key: 'a', ctrl: true, handler: toggleSelectAll, description: '全选/取消全选' },
+  ], [selectedIds.size, handleBatchCheck, toggleSelectAll])
+
+  useKeyboardShortcuts(reconcileShortcuts)
 
   return (
     <div className="flex flex-col gap-4">

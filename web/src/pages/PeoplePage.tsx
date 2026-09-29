@@ -1,25 +1,29 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
+import { Link } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
+import Modal from '../components/Modal'
+import ConfirmDialog from '../components/ConfirmDialog'
+import RelationTagFilter from '../components/people/RelationTagFilter'
 import type { Person, RelationTag, DailyRecord, GbRecord } from '../types'
 import {
-  getAllPersons,
-  createPerson,
-  updatePerson,
-  deletePerson,
-  searchPersons,
   getDailyRecordsByName,
   getGbRecordsByName,
-  getTransactionSummaryByName
+  getTransactionSummaryByName,
 } from '../lib/api-client'
+import {
+  usePersons,
+  useSearchPersons,
+  useCreatePerson,
+  useUpdatePerson,
+  useDeletePerson,
+} from '../hooks/useQueries'
 
 const relationOptions: RelationTag[] = ['亲戚', '朋友', '同事', '同学', '邻居', '其他']
 
 /** 人员管理页（含往来明细 F-9.4、差额计算 F-9.5） */
 export default function PeoplePage() {
-  const [persons, setPersons] = useState<Person[]>([])
-  const [loading, setLoading] = useState(true)
   const [keyword, setKeyword] = useState('')
   const [filterTag, setFilterTag] = useState<RelationTag | 'all'>('all')
 
@@ -32,7 +36,6 @@ export default function PeoplePage() {
   const [formTag, setFormTag] = useState<RelationTag>('朋友')
   const [formAliases, setFormAliases] = useState('')
   const [formNote, setFormNote] = useState('')
-  const [formSubmitting, setFormSubmitting] = useState(false)
 
   /* 往来明细展开状态 */
   const [expandedPerson, setExpandedPerson] = useState<string | null>(null)
@@ -40,26 +43,34 @@ export default function PeoplePage() {
   const [txSummary, setTxSummary] = useState<{ total_out: number; total_in: number; net: number; daily_count: number; gb_count: number } | null>(null)
   const [txLoading, setTxLoading] = useState(false)
 
+  /* 确认弹窗 */
+  const [deletingPersonId, setDeletingPersonId] = useState<number | null>(null)
+
   const { toast, showToast } = useToast()
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    let list: Person[]
-    if (keyword.trim()) {
-      list = await searchPersons(keyword.trim())
-    } else {
-      list = await getAllPersons()
-    }
-    if (filterTag !== 'all') {
-      list = list.filter((p) => p.relation_tag === filterTag)
-    }
-    setPersons(list)
-    setLoading(false)
-  }, [keyword, filterTag])
+  const trimmedKeyword = keyword.trim()
+  const { data: allPersons = [], isLoading: allLoading } = usePersons()
+  const { data: searchResults = [], isLoading: searchLoading } = useSearchPersons(trimmedKeyword)
 
-  useEffect(() => {
-    load()
-  }, [load])
+  const filteredPersons = useMemo(() => {
+    const base = trimmedKeyword ? searchResults : allPersons
+    if (filterTag === 'all') return base
+    return base.filter((p) => p.relation_tag === filterTag)
+  }, [trimmedKeyword, searchResults, allPersons, filterTag])
+
+  const tagCounts = useMemo(() => {
+    const counts = {} as Record<RelationTag, number>
+    for (const p of allPersons) {
+      counts[p.relation_tag] = (counts[p.relation_tag] || 0) + 1
+    }
+    return counts
+  }, [allPersons])
+
+  const loading = trimmedKeyword ? searchLoading : allLoading
+
+  const createMutation = useCreatePerson()
+  const updateMutation = useUpdatePerson()
+  const deleteMutation = useDeletePerson()
 
   /* 展开/收起往来明细 */
   const toggleExpand = useCallback(async (personName: string) => {
@@ -73,9 +84,8 @@ export default function PeoplePage() {
       const [daily, gb, summary] = await Promise.all([
         getDailyRecordsByName(personName),
         getGbRecordsByName(personName),
-        getTransactionSummaryByName(personName)
+        getTransactionSummaryByName(personName),
       ])
-      // 按时间倒序
       daily.sort((a, b) => b.event_date.localeCompare(a.event_date))
       gb.sort((a, b) => b.record_time.localeCompare(a.record_time))
       setTxRecords({ daily, gb })
@@ -109,56 +119,55 @@ export default function PeoplePage() {
     setShowForm(true)
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!formName.trim()) {
       showToast('请填写姓名')
       return
     }
-    setFormSubmitting(true)
-    try {
-      const aliases = formAliases
-        .split(/[、,，]/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-      if (editingId != null) {
-        await updatePerson(editingId, {
-          name: formName.trim(),
-          nickname: formNickname.trim() || undefined,
-          phone: formPhone.trim() || undefined,
-          relation_tag: formTag,
-          aliases,
-          note: formNote.trim() || undefined
-        })
-        showToast('人员已更新')
-      } else {
-        await createPerson({
-          name: formName.trim(),
-          nickname: formNickname.trim() || undefined,
-          phone: formPhone.trim() || undefined,
-          relation_tag: formTag,
-          aliases,
-          note: formNote.trim() || undefined
-        })
-        showToast('人员已创建')
-      }
-      setShowForm(false)
-      await load()
-    } catch (e) {
-      showToast('操作失败：' + (e as Error).message)
-    } finally {
-      setFormSubmitting(false)
+    const aliases = formAliases
+      .split(/[、,，]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const payload = {
+      name: formName.trim(),
+      nickname: formNickname.trim() || undefined,
+      phone: formPhone.trim() || undefined,
+      relation_tag: formTag as RelationTag,
+      aliases,
+      note: formNote.trim() || undefined,
+    }
+
+    if (editingId != null) {
+      updateMutation.mutate(
+        { id: editingId, changes: payload },
+        {
+          onSuccess: () => {
+            showToast('人员已更新')
+            setShowForm(false)
+          },
+          onError: (e) => showToast('操作失败：' + e.message),
+        },
+      )
+    } else {
+      createMutation.mutate(
+        payload,
+        {
+          onSuccess: () => {
+            showToast('人员已创建')
+            setShowForm(false)
+          },
+          onError: (e) => showToast('操作失败：' + e.message),
+        },
+      )
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('确定删除该人员吗？')) return
-    try {
-      await deletePerson(id)
-      showToast('人员已删除')
-      await load()
-    } catch (e) {
-      showToast('删除失败：' + (e as Error).message)
-    }
+  const handleDelete = (id: number) => {
+    deleteMutation.mutate(id, {
+      onSuccess: () => showToast('人员已删除'),
+      onError: (e) => showToast('删除失败：' + e.message),
+    })
+    setDeletingPersonId(null)
   }
 
   const tagColors: Record<RelationTag, string> = {
@@ -167,10 +176,11 @@ export default function PeoplePage() {
     同事: 'bg-warning-bg text-warning',
     同学: 'bg-info/10 text-info',
     邻居: 'bg-gray-100 text-ink-secondary',
-    其他: 'bg-gray-100 text-ink-secondary'
+    其他: 'bg-gray-100 text-ink-secondary',
   }
 
   const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
+  const isPending = createMutation.isPending || updateMutation.isPending
 
   return (
     <PageScaffold
@@ -186,40 +196,33 @@ export default function PeoplePage() {
       }
     >
       {/* 筛选栏 */}
-      <div className="flex flex-col gap-3 rounded-card bg-card p-4 shadow-card sm:flex-row">
+      <div className="flex flex-col gap-3 rounded-card bg-card p-4 shadow-card">
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="搜索姓名、昵称、电话、别名…"
           className="h-11 flex-1 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
         />
-        <select
+        <RelationTagFilter
           value={filterTag}
-          onChange={(e) => setFilterTag(e.target.value as RelationTag | 'all')}
-          className="h-11 rounded-btn border border-line bg-white px-4 text-sm outline-none focus:border-primary"
-        >
-          <option value="all">全部关系</option>
-          {relationOptions.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setFilterTag(v)}
+          counts={tagCounts}
+        />
       </div>
 
       {/* 人员列表 */}
       {loading ? (
         <p className="py-10 text-center text-ink-secondary">加载中…</p>
-      ) : persons.length === 0 ? (
+      ) : filteredPersons.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-16">
           <span className="text-4xl">👥</span>
           <p className="text-ink-secondary">
-            {keyword.trim() ? '未找到匹配的人员' : '暂无人员档案'}
+            {trimmedKeyword ? '未找到匹配的人员' : '暂无人员档案'}
           </p>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {persons.map((p) => (
+          {filteredPersons.map((p) => (
             <div key={p.id} className="flex flex-col rounded-card bg-card shadow-card">
               <div className="p-5">
                 <div className="flex items-start justify-between">
@@ -244,6 +247,13 @@ export default function PeoplePage() {
                     )}
                   </div>
                   <div className="flex gap-1">
+                    <Link
+                      to="/people/$id"
+                      params={{ id: String(p.id) }}
+                      className="rounded-btn px-2 py-1 text-xs text-primary hover:bg-primary/10"
+                    >
+                      详情
+                    </Link>
                     <button
                       onClick={() => openEdit(p)}
                       className="rounded-btn px-2 py-1 text-xs text-info hover:bg-info/10"
@@ -251,7 +261,7 @@ export default function PeoplePage() {
                       编辑
                     </button>
                     <button
-                      onClick={() => handleDelete(p.id!)}
+                      onClick={() => setDeletingPersonId(p.id!)}
                       className="rounded-btn px-2 py-1 text-xs text-danger hover:bg-danger-bg"
                     >
                       删除
@@ -275,27 +285,25 @@ export default function PeoplePage() {
                     <p className="py-4 text-center text-sm text-ink-secondary">加载中…</p>
                   ) : (
                     <>
-                      {/* 汇总（F-9.5） */}
                       {txSummary && (
-                        <div className="mb-3 grid grid-cols-3 gap-2 text-center">
-                          <div className="rounded-btn bg-white p-2">
+                        <div className="mb-3 grid grid-cols-3 gap-2">
+                          <div className="min-w-0 rounded-btn bg-white p-2 text-center">
                             <div className="text-xs text-ink-secondary">总送出</div>
-                            <div className="text-sm font-bold text-danger">{fmt(txSummary.total_out)}</div>
+                            <div className="break-all text-sm font-bold text-danger">{fmt(txSummary.total_out)}</div>
                           </div>
-                          <div className="rounded-btn bg-white p-2">
+                          <div className="min-w-0 rounded-btn bg-white p-2 text-center">
                             <div className="text-xs text-ink-secondary">总收到</div>
-                            <div className="text-sm font-bold text-success">{fmt(txSummary.total_in)}</div>
+                            <div className="break-all text-sm font-bold text-success">{fmt(txSummary.total_in)}</div>
                           </div>
-                          <div className="rounded-btn bg-white p-2">
+                          <div className="min-w-0 rounded-btn bg-white p-2 text-center">
                             <div className="text-xs text-ink-secondary">净差额</div>
-                            <div className={`text-sm font-bold ${txSummary.net >= 0 ? 'text-success' : 'text-danger'}`}>
+                            <div className={`break-all text-sm font-bold ${txSummary.net >= 0 ? 'text-success' : 'text-danger'}`}>
                               {fmt(txSummary.net)}
                             </div>
                           </div>
                         </div>
                       )}
 
-                      {/* 记录列表（F-9.4） */}
                       {txRecords.daily.length === 0 && txRecords.gb.length === 0 ? (
                         <p className="py-3 text-center text-sm text-ink-secondary">暂无往来记录</p>
                       ) : (
@@ -345,7 +353,6 @@ export default function PeoplePage() {
                         </ul>
                       )}
 
-                      {/* 统计 */}
                       {txSummary && (txSummary.daily_count > 0 || txSummary.gb_count > 0) && (
                         <p className="mt-2 text-xs text-ink-secondary">
                           共 {txSummary.daily_count} 笔日常 + {txSummary.gb_count} 笔礼簿
@@ -361,94 +368,103 @@ export default function PeoplePage() {
       )}
 
       {/* 表单弹窗 */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-[28rem] rounded-card bg-card p-6 shadow-xl">
-            <h3 className="text-lg font-bold text-ink">
-              {editingId != null ? '编辑人员' : '新增人员'}
-            </h3>
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title={editingId != null ? '编辑人员' : '新增人员'}
+        maxWidth="md"
+        actions={
+          <>
+            <button
+              onClick={() => setShowForm(false)}
+              className="flex-1 rounded-btn border border-line py-2.5 font-medium text-ink-secondary"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isPending || !formName.trim()}
+              className="flex-1 rounded-btn bg-primary py-2.5 font-medium text-white disabled:bg-disabled"
+            >
+              {isPending ? '保存中…' : '保存'}
+            </button>
+          </>
+        }
+      >
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">姓名 <span className="text-danger">*</span></span>
+          <input
+            value={formName}
+            onChange={(e) => setFormName(e.target.value)}
+            className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+          />
+        </label>
 
-            <label className="mt-4 flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">姓名 <span className="text-danger">*</span></span>
-              <input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-              />
-            </label>
-
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium text-ink">昵称</span>
-                <input
-                  value={formNickname}
-                  onChange={(e) => setFormNickname(e.target.value)}
-                  className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium text-ink">关系标签</span>
-                <select
-                  value={formTag}
-                  onChange={(e) => setFormTag(e.target.value as RelationTag)}
-                  className="h-11 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary"
-                >
-                  {relationOptions.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="mt-3 flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">电话号码</span>
-              <input
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                inputMode="tel"
-                className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
-              />
-            </label>
-
-            <label className="mt-3 flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">别名（用「、」分隔）</span>
-              <input
-                value={formAliases}
-                onChange={(e) => setFormAliases(e.target.value)}
-                placeholder="如：小明、阿明"
-                className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
-              />
-            </label>
-
-            <label className="mt-3 flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">备注</span>
-              <input
-                value={formNote}
-                onChange={(e) => setFormNote(e.target.value)}
-                className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
-              />
-            </label>
-
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setShowForm(false)}
-                className="flex-1 rounded-btn border border-line py-2.5 font-medium text-ink-secondary"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={formSubmitting || !formName.trim()}
-                className="flex-1 rounded-btn bg-primary py-2.5 font-medium text-white disabled:bg-disabled"
-              >
-                {formSubmitting ? '保存中…' : '保存'}
-              </button>
-            </div>
-          </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">昵称</span>
+            <input
+              value={formNickname}
+              onChange={(e) => setFormNickname(e.target.value)}
+              className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">关系标签</span>
+            <select
+              value={formTag}
+              onChange={(e) => setFormTag(e.target.value as RelationTag)}
+              className="h-11 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+            >
+              {relationOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-      )}
+
+        <label className="mt-3 flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">电话号码</span>
+          <input
+            value={formPhone}
+            onChange={(e) => setFormPhone(e.target.value)}
+            inputMode="tel"
+            className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
+          />
+        </label>
+
+        <label className="mt-3 flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">别名（用「、」分隔）</span>
+          <input
+            value={formAliases}
+            onChange={(e) => setFormAliases(e.target.value)}
+            placeholder="如：小明、阿明"
+            className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
+          />
+        </label>
+
+        <label className="mt-3 flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">备注</span>
+          <input
+            value={formNote}
+            onChange={(e) => setFormNote(e.target.value)}
+            className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
+          />
+        </label>
+      </Modal>
+
+      <ConfirmDialog
+        open={deletingPersonId !== null}
+        title="删除人员"
+        message="确定删除该人员吗？"
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={() => deletingPersonId && handleDelete(deletingPersonId)}
+        onCancel={() => setDeletingPersonId(null)}
+        loading={deleteMutation.isPending}
+      />
 
       {/* Toast */}
       <Toast message={toast} onClose={() => showToast(null)} />

@@ -1,19 +1,46 @@
 import type {
   AccountType,
+  AdminUser,
+  AdminUserCreate,
+  AdminUserUpdate,
+  AuthorizationActionLog,
+  AuthorizationCode,
+  BalanceAdjustment,
   DailyRecord,
+  EventDistributionItem,
+  FamilyGroup,
+  FamilyMember,
   GbRecord,
   Guestbook,
+  GuestbookStatsItem,
+  MonthlyTrendItem,
+  Notification,
   OperationLog,
+  PaginatedResponse,
   PaymentAccount,
+  PendingApproval,
   Person,
+  PersonMergeResult,
+  ProfileResponse,
+  SecurityEmailItem,
+  SystemSettings,
   TerminalSettings,
 } from '../types'
 import { api } from './api'
+import { getToken } from './auth'
 
 
 /* ========================= 礼簿 CRUD ========================= */
 
-export async function createGuestbook(gb: Omit<Guestbook, 'id' | 'created_at'>): Promise<number> {
+export interface CreateGuestbookInput {
+  name: string
+  event_type: string
+  event_date: string
+  host_person_id?: number
+  operator_note?: string
+}
+
+export async function createGuestbook(gb: CreateGuestbookInput): Promise<number> {
   const res = await api.post<{ id: number }>('/guestbooks/', gb)
   return res.id
 }
@@ -24,7 +51,17 @@ export async function updateGuestbook(id: number, changes: Partial<Guestbook>): 
 }
 
 export async function getAllGuestbooks(): Promise<Guestbook[]> {
-  return api.get<Guestbook[]>('/guestbooks/')
+  const res = await api.get<PaginatedResponse<Guestbook>>('/guestbooks/')
+  return res.items
+}
+
+export async function getGuestbooksPaginated(
+  page: number = 1,
+  pageSize: number = 20
+): Promise<PaginatedResponse<Guestbook>> {
+  return api.get<PaginatedResponse<Guestbook>>(
+    `/guestbooks/?page=${page}&page_size=${pageSize}`
+  )
 }
 
 export async function getGuestbookById(id: number): Promise<Guestbook | undefined> {
@@ -35,8 +72,12 @@ export async function getGuestbookById(id: number): Promise<Guestbook | undefine
   }
 }
 
-export async function completeGuestbook(id: number): Promise<void> {
-  await api.post(`/guestbooks/${id}/complete`)
+export async function closeGuestbook(id: number): Promise<void> {
+  await api.post(`/guestbooks/${id}/close`)
+}
+
+export async function archiveGuestbook(id: number): Promise<void> {
+  await api.post(`/guestbooks/${id}/archive`)
 }
 
 export async function deleteGuestbook(id: number): Promise<void> {
@@ -73,7 +114,7 @@ export async function createGbRecordBatch(inputs: CreateGbRecordInput[]): Promis
 
 export async function updateGbRecord(
   id: number,
-  changes: Partial<Pick<GbRecord, 'guest_name' | 'phone' | 'amount' | 'payment_method' | 'account_id' | 'note' | 'agent_name' | 'check_status' | 'record_time'>>,
+  changes: Partial<Pick<GbRecord, 'guest_name' | 'phone' | 'amount' | 'payment_method' | 'account_id' | 'note' | 'agent_name' | 'check_status' | 'record_time' | 'is_private'>>,
   operatorName?: string,
   clientId?: string,
 ): Promise<void> {
@@ -90,12 +131,12 @@ export async function deleteGbRecord(
 
 export async function updateCheckStatus(
   recordId: number,
-  checked: boolean,
+  status: 'unchecked' | 'checked' | 'disputed',
   operatorName?: string,
   clientId?: string,
 ): Promise<void> {
   await api.patch(`/gb-records/${recordId}/check`, {
-    check_status: checked ? 'checked' : 'unchecked',
+    check_status: status,
     operator_name: operatorName,
     client_id: clientId,
   })
@@ -106,21 +147,50 @@ export async function uncheckRecord(
   operatorName?: string,
   clientId?: string,
 ): Promise<void> {
-  await updateCheckStatus(recordId, false, operatorName, clientId)
+  await updateCheckStatus(recordId, 'unchecked', operatorName, clientId)
+}
+
+export async function markRecordDisputed(
+  recordId: number,
+  operatorName?: string,
+  clientId?: string,
+): Promise<void> {
+  await updateCheckStatus(recordId, 'disputed', operatorName, clientId)
 }
 
 export async function batchUpdateCheckStatus(
   recordIds: number[],
-  checked: boolean,
+  status: 'unchecked' | 'checked' | 'disputed',
   operatorName?: string,
   clientId?: string,
 ): Promise<void> {
   await api.post('/gb-records/batch-check', {
     record_ids: recordIds,
-    check_status: checked ? 'checked' : 'unchecked',
+    check_status: status,
     operator_name: operatorName,
     client_id: clientId,
   })
+}
+
+/* ========================= 代理送礼 ========================= */
+
+export interface CreateProxyRecordInput {
+  guest_name: string
+  phone?: string
+  amount: number
+  payment_method: 'cash' | 'wechat' | 'other'
+  account_id?: number
+  note?: string
+  agent_name?: string
+  record_time?: string
+  person_id?: number
+}
+
+export async function createProxyRecords(
+  guestbookId: number,
+  records: CreateProxyRecordInput[],
+): Promise<number[]> {
+  return api.post<number[]>(`/guestbooks/${guestbookId}/proxy-records`, { records })
 }
 
 /* ========================= 日常记录 CRUD ========================= */
@@ -136,6 +206,7 @@ export interface CreateDailyRecordInput {
   account_id?: number
   event_date: string
   note?: string
+  is_private?: boolean
   created_by?: string
 }
 
@@ -171,7 +242,28 @@ export async function getDailyRecords(opts?: {
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts?.offset !== undefined) params.set('offset', String(opts.offset))
   const qs = params.toString()
-  return api.get<DailyRecord[]>(`/daily-records/${qs ? `?${qs}` : ''}`)
+  const res = await api.get<PaginatedResponse<DailyRecord>>(`/daily-records/${qs ? `?${qs}` : ''}`)
+  return res.items
+}
+
+export async function getDailyRecordsPaginated(
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: {
+    type?: 'out' | 'in'
+    keyword?: string
+    start_date?: string
+    end_date?: string
+  }
+): Promise<PaginatedResponse<DailyRecord>> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (filters?.type) params.set('type', filters.type)
+  if (filters?.keyword) params.set('keyword', filters.keyword)
+  if (filters?.start_date) params.set('start_date', filters.start_date)
+  if (filters?.end_date) params.set('end_date', filters.end_date)
+  return api.get<PaginatedResponse<DailyRecord>>(`/daily-records?${params.toString()}`)
 }
 
 export async function dailyRecordsSummary(opts?: {
@@ -201,7 +293,29 @@ export async function getGbRecordsByGuestbook(
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts?.offset !== undefined) params.set('offset', String(opts.offset))
   const qs = params.toString()
-  return api.get<GbRecord[]>(`/guestbooks/${guestbookId}/records${qs ? `?${qs}` : ''}`)
+  const res = await api.get<PaginatedResponse<GbRecord>>(`/guestbooks/${guestbookId}/records${qs ? `?${qs}` : ''}`)
+  return res.items
+}
+
+export async function getGbRecordsPaginated(
+  guestbookId: number,
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: {
+    check_status?: string
+    payment_method?: string
+    keyword?: string
+  }
+): Promise<PaginatedResponse<GbRecord>> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (filters?.check_status) params.set('check_status', filters.check_status)
+  if (filters?.payment_method) params.set('payment_method', filters.payment_method)
+  if (filters?.keyword) params.set('keyword', filters.keyword)
+  return api.get<PaginatedResponse<GbRecord>>(
+    `/guestbooks/${guestbookId}/records?${params.toString()}`
+  )
 }
 
 export async function getRecentRecords(guestbookId: number, limit = 5): Promise<GbRecord[]> {
@@ -219,19 +333,20 @@ export async function checkDuplicateName(
   guestbookId: number,
   name: string,
 ): Promise<boolean> {
-  const records = await api.get<GbRecord[]>(
+  const res = await api.get<{ has_duplicate: boolean; records: GbRecord[] }>(
     `/guestbooks/${guestbookId}/records/duplicate?name=${encodeURIComponent(name)}`,
   )
-  return records.length > 0
+  return res.has_duplicate
 }
 
 export async function findDuplicatesByName(
   guestbookId: number,
   name: string,
 ): Promise<GbRecord[]> {
-  return api.get<GbRecord[]>(
+  const res = await api.get<{ has_duplicate: boolean; records: GbRecord[] }>(
     `/guestbooks/${guestbookId}/records/duplicate?name=${encodeURIComponent(name)}`,
   )
+  return res.records
 }
 
 export async function findRecordByPhone(
@@ -262,7 +377,24 @@ export async function deletePerson(id: number): Promise<void> {
 }
 
 export async function getAllPersons(): Promise<Person[]> {
-  return api.get<Person[]>('/persons/')
+  const res = await api.get<PaginatedResponse<Person>>('/persons/')
+  return res.items
+}
+
+export async function getPersonsPaginated(
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: {
+    keyword?: string
+    relation_tag?: string
+  }
+): Promise<PaginatedResponse<Person>> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (filters?.keyword) params.set('keyword', filters.keyword)
+  if (filters?.relation_tag) params.set('relation_tag', filters.relation_tag)
+  return api.get<PaginatedResponse<Person>>(`/persons?${params.toString()}`)
 }
 
 export async function getPersonById(id: number): Promise<Person | undefined> {
@@ -277,7 +409,17 @@ export async function searchPersons(keyword: string): Promise<Person[]> {
   return api.get<Person[]>(`/persons/search?q=${encodeURIComponent(keyword)}`)
 }
 
-/* ========================= 账户管理 ========================= */
+export async function mergePersons(
+  sourcePersonId: number,
+  targetPersonId: number,
+): Promise<PersonMergeResult> {
+  return api.post<PersonMergeResult>('/persons/merge', {
+    source_person_id: sourcePersonId,
+    target_person_id: targetPersonId,
+  })
+}
+
+/* ========================= 收款账户管理 ========================= */
 
 export async function createPaymentAccount(
   data: Omit<PaymentAccount, 'id' | 'created_at'>,
@@ -299,7 +441,8 @@ export async function getAllPaymentAccounts(type?: AccountType): Promise<Payment
   if (type) params.set('type', type)
   params.set('active_only', 'false')
   const qs = params.toString()
-  return api.get<PaymentAccount[]>(`/payment-accounts/${qs ? `?${qs}` : ''}`)
+  const res = await api.get<PaginatedResponse<PaymentAccount>>(`/payment-accounts/${qs ? `?${qs}` : ''}`)
+  return res.items
 }
 
 export async function getPaymentAccounts(type?: AccountType): Promise<PaymentAccount[]> {
@@ -307,7 +450,8 @@ export async function getPaymentAccounts(type?: AccountType): Promise<PaymentAcc
   if (type) params.set('type', type)
   params.set('active_only', 'true')
   const qs = params.toString()
-  return api.get<PaymentAccount[]>(`/payment-accounts/${qs ? `?${qs}` : ''}`)
+  const res = await api.get<PaginatedResponse<PaymentAccount>>(`/payment-accounts/${qs ? `?${qs}` : ''}`)
+  return res.items
 }
 
 export async function getPaymentAccountById(id: number): Promise<PaymentAccount | undefined> {
@@ -320,22 +464,29 @@ export async function getPaymentAccountById(id: number): Promise<PaymentAccount 
 
 /* ========================= 操作日志 ========================= */
 
-export interface AddLogInput {
-  guestbook_id: number
-  gb_record_id?: number
-  action_type: 'CREATE' | 'UPDATE' | 'DELETE' | 'MERGE'
-  operator_name?: string
-  client_id?: string
-  before_data?: string
-  after_data?: string
-}
-
-export async function addOperationLog(_input: AddLogInput): Promise<number> {
-  return 0
-}
-
 export async function getOperationLogs(guestbookId: number, limit = 100): Promise<OperationLog[]> {
-  return api.get<OperationLog[]>(`/guestbooks/${guestbookId}/operation-logs?limit=${limit}`)
+  const res = await api.get<PaginatedResponse<OperationLog>>(`/operation-logs?guestbook_id=${guestbookId}&page_size=${limit}`)
+  return res.items
+}
+
+export async function getOperationLogsPaginated(
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: {
+    target_table?: string
+    action_type?: string
+    start_date?: string
+    end_date?: string
+  }
+): Promise<PaginatedResponse<OperationLog>> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (filters?.target_table) params.set('target_table', filters.target_table)
+  if (filters?.action_type) params.set('action_type', filters.action_type)
+  if (filters?.start_date) params.set('start_date', filters.start_date)
+  if (filters?.end_date) params.set('end_date', filters.end_date)
+  return api.get<PaginatedResponse<OperationLog>>(`/operation-logs?${params.toString()}`)
 }
 
 /* ========================= 终端设置 ========================= */
@@ -345,10 +496,9 @@ export async function getTerminalSettings(
   clientId: string,
 ): Promise<TerminalSettings | undefined> {
   try {
-    const list = await api.get<TerminalSettings[]>(
+    return await api.get<TerminalSettings>(
       `/terminal-settings/?guestbook_id=${guestbookId}&client_id=${encodeURIComponent(clientId)}`,
     )
-    return list[0]
   } catch {
     return undefined
   }
@@ -357,7 +507,8 @@ export async function getTerminalSettings(
 export async function saveTerminalSettings(
   settings: Omit<TerminalSettings, 'id' | 'updated_at'>,
 ): Promise<number> {
-  const res = await api.put<{ id: number }>('/terminal-settings/', settings)
+  const { guestbook_id, ...body } = settings
+  const res = await api.put<{ id: number }>(`/terminal-settings/?guestbook_id=${guestbook_id}`, body)
   return res.id
 }
 
@@ -384,7 +535,8 @@ export async function accountSummary(guestbookId: number) {
 }
 
 export async function wechatReceivedToday(accountId: number, date: string, _guestbookId?: number) {
-  return api.get<number>(`/payment-accounts/${accountId}/received-today?date=${date}`)
+  const res = await api.get<{ received: number }>(`/payment-accounts/${accountId}/received-today?date=${date}`)
+  return res.received
 }
 
 export async function wechatRemainingLimit(account: PaymentAccount, date: string): Promise<number> {
@@ -450,4 +602,474 @@ export async function getTransactionSummaryByName(name: string) {
     daily_count: number
     gb_count: number
   }>(`/stats/transaction-by-name?name=${encodeURIComponent(name)}`)
+}
+
+/* ========================= 差额调整 ========================= */
+
+export async function getBalanceAdjustments(
+  personId?: number,
+  page: number = 1,
+  pageSize: number = 20,
+): Promise<PaginatedResponse<BalanceAdjustment>> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (personId) params.set('person_id', String(personId))
+  return api.get<PaginatedResponse<BalanceAdjustment>>(`/balance-adjustments/?${params.toString()}`)
+}
+
+export async function createBalanceAdjustment(data: {
+  person_id: number
+  amount: number
+  reason: string
+}): Promise<number> {
+  const res = await api.post<{ id: number }>('/balance-adjustments/', data)
+  return res.id
+}
+
+/* ========================= 增强统计 ========================= */
+
+export async function getMonthlyTrend(months: number = 12): Promise<MonthlyTrendItem[]> {
+  return api.get<MonthlyTrendItem[]>(`/stats/monthly-trend?months=${months}`)
+}
+
+export async function getEventDistribution(): Promise<EventDistributionItem[]> {
+  return api.get<EventDistributionItem[]>('/stats/event-distribution')
+}
+
+export async function getGuestbookStats(): Promise<GuestbookStatsItem[]> {
+  return api.get<GuestbookStatsItem[]>('/stats/guestbook-summary')
+}
+
+/* ========================= 数据导出 ========================= */
+
+export async function exportDailyRecords(
+  format: 'xlsx' | 'csv' = 'xlsx',
+  filters?: {
+    type?: 'in' | 'out'
+    start_date?: string
+    end_date?: string
+    include_private?: boolean
+  },
+): Promise<Blob> {
+  const params = new URLSearchParams()
+  params.set('format', format)
+  if (filters?.type) params.set('type', filters.type)
+  if (filters?.start_date) params.set('start_date', filters.start_date)
+  if (filters?.end_date) params.set('end_date', filters.end_date)
+  if (filters?.include_private !== undefined) params.set('include_private', String(filters.include_private))
+  return api.getBlob(`/export/daily-records?${params.toString()}`)
+}
+
+export async function exportGuestbook(guestbookId: number): Promise<Blob> {
+  return api.getBlob(`/export/guestbooks/${guestbookId}`)
+}
+
+/* ========================= 数据导入 ========================= */
+
+export interface ImportPreviewRow {
+  row_number: number
+  data: Record<string, string>
+  is_valid: boolean
+  errors: string[]
+  is_duplicate: boolean
+  duplicate_summary: string | null
+}
+
+export interface ImportPreviewResult {
+  import_type: 'daily_record' | 'gb_record'
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+  duplicate_rows: number
+  rows: ImportPreviewRow[]
+  file_name: string
+}
+
+export async function downloadImportTemplate(templateType: 'daily_record' | 'gb_record'): Promise<Blob> {
+  return api.getBlob(`/import/templates/${templateType}`)
+}
+
+export async function previewImport(
+  file: File,
+  importType: 'daily_record' | 'gb_record',
+  guestbookId?: number,
+): Promise<ImportPreviewResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const params = new URLSearchParams()
+  params.set('import_type', importType)
+  if (guestbookId) params.set('guestbook_id', String(guestbookId))
+
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`/api/import/preview?${params.toString()}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail || body.message || detail
+    } catch { /* ignore */ }
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+export async function commitImport(
+  fileName: string,
+  importType: 'daily_record' | 'gb_record',
+  validRowIndices: number[],
+  duplicateStrategy: 'skip' | 'overwrite' | 'import_all' = 'skip',
+  guestbookId?: number,
+): Promise<{ imported_count: number; skipped_count: number; overwritten_count: number; errors: object[] }> {
+  return api.post('/import/commit', {
+    import_type: importType,
+    file_name: fileName,
+    valid_row_indices: validRowIndices,
+    duplicate_strategy: duplicateStrategy,
+    guestbook_id: guestbookId,
+  })
+}
+
+/* ========================= 家庭组管理 ========================= */
+
+export async function createFamilyGroup(data: {
+  name: string
+  description?: string
+  invite_expires_hours?: number
+}): Promise<{ id: number; invite_code: string }> {
+  return api.post('/family/groups', data)
+}
+
+export async function listMyFamilyGroups(): Promise<FamilyGroup[]> {
+  return api.get<FamilyGroup[]>('/family/groups')
+}
+
+export async function getFamilyGroup(groupId: number): Promise<FamilyGroup> {
+  return api.get<FamilyGroup>(`/family/groups/${groupId}`)
+}
+
+export async function updateFamilyGroup(groupId: number, data: {
+  name?: string
+  description?: string
+}): Promise<void> {
+  await api.put(`/family/groups/${groupId}`, data)
+}
+
+export async function dissolveFamilyGroup(groupId: number): Promise<void> {
+  await api.delete(`/family/groups/${groupId}`)
+}
+
+export async function refreshInviteCode(groupId: number): Promise<{
+  invite_code: string
+  invite_expires_at: string | null
+}> {
+  return api.post(`/family/groups/${groupId}/refresh-invite`)
+}
+
+export async function joinFamilyGroup(inviteCode: string): Promise<{
+  message: string
+  group_id: number
+}> {
+  return api.post('/family/join', { invite_code: inviteCode })
+}
+
+export async function leaveFamilyGroup(groupId: number): Promise<void> {
+  await api.post(`/family/groups/${groupId}/leave`)
+}
+
+export async function listFamilyMembers(groupId: number): Promise<FamilyMember[]> {
+  return api.get<FamilyMember[]>(`/family/groups/${groupId}/members`)
+}
+
+export async function updateMemberRole(groupId: number, memberId: number, role: string): Promise<void> {
+  await api.put(`/family/groups/${groupId}/members/${memberId}/role`, { role })
+}
+
+export async function toggleMemberActive(groupId: number, memberId: number, isActive: boolean): Promise<void> {
+  await api.put(`/family/groups/${groupId}/members/${memberId}/active`, { is_active: isActive })
+}
+
+export async function removeMember(groupId: number, memberId: number): Promise<void> {
+  await api.delete(`/family/groups/${groupId}/members/${memberId}`)
+}
+
+export async function getSharedPersons(groupId: number, page = 1, pageSize = 20): Promise<PaginatedResponse<Person>> {
+  return api.get<PaginatedResponse<Person>>(
+    `/family/groups/${groupId}/shared/persons?page=${page}&page_size=${pageSize}`
+  )
+}
+
+export async function getSharedDailyRecords(groupId: number, page = 1, pageSize = 20): Promise<PaginatedResponse<DailyRecord>> {
+  return api.get<PaginatedResponse<DailyRecord>>(
+    `/family/groups/${groupId}/shared/daily-records?page=${page}&page_size=${pageSize}`
+  )
+}
+
+export async function getSharedStats(groupId: number): Promise<{
+  person_count: number
+  total_received: number
+  total_sent: number
+  member_count: number
+}> {
+  return api.get(`/family/groups/${groupId}/shared/stats`)
+}
+
+/* ========================= 授权码管理 ========================= */
+
+export async function createAuthorizationCode(data: {
+  guestbook_id: number
+  grantee_name: string
+  grantee_account_id: number
+  permissions?: 'record' | 'reconcile' | 'both'
+  expires_at: string
+}): Promise<{ id: number; code: string }> {
+  return api.post('/authorization/codes', data)
+}
+
+export async function listAuthorizationCodes(filters?: {
+  guestbook_id?: number
+  status?: string
+}): Promise<AuthorizationCode[]> {
+  const params = new URLSearchParams()
+  if (filters?.guestbook_id) params.set('guestbook_id', String(filters.guestbook_id))
+  if (filters?.status) params.set('status', filters.status)
+  const qs = params.toString()
+  return api.get<AuthorizationCode[]>(`/authorization/codes${qs ? `?${qs}` : ''}`)
+}
+
+export async function getAuthorizationCode(codeId: number): Promise<AuthorizationCode> {
+  return api.get<AuthorizationCode>(`/authorization/codes/${codeId}`)
+}
+
+export async function bindAuthorizationCode(code: string, grantorAccountId: number): Promise<{
+  message: string
+  guestbook_id: number
+  permissions: string
+}> {
+  return api.post('/authorization/codes/bind', {
+    code,
+    grantor_account_id: grantorAccountId,
+  })
+}
+
+export async function revokeAuthorizationCode(codeId: number): Promise<void> {
+  await api.post(`/authorization/codes/${codeId}/revoke`)
+}
+
+export async function getAuthorizationCodeLogs(codeId: number, page = 1, pageSize = 20): Promise<AuthorizationActionLog[]> {
+  return api.get<AuthorizationActionLog[]>(
+    `/authorization/codes/${codeId}/logs?page=${page}&page_size=${pageSize}`
+  )
+}
+
+/* ========================= 审批管理 ========================= */
+
+export async function submitApproval(data: {
+  family_group_id: number
+  action_type: 'CREATE' | 'UPDATE' | 'DELETE'
+  target_table: string
+  target_id?: number
+  data_snapshot?: Record<string, unknown>
+}): Promise<{ id: number; message: string }> {
+  return api.post('/approvals/', data)
+}
+
+export async function listApprovals(filters?: {
+  group_id?: number
+  status?: string
+  submitter_id?: number
+  page?: number
+  page_size?: number
+}): Promise<PendingApproval[]> {
+  const params = new URLSearchParams()
+  if (filters?.group_id) params.set('group_id', String(filters.group_id))
+  if (filters?.status) params.set('status', filters.status)
+  if (filters?.submitter_id) params.set('submitter_id', String(filters.submitter_id))
+  if (filters?.page) params.set('page', String(filters.page))
+  if (filters?.page_size) params.set('page_size', String(filters.page_size))
+  const qs = params.toString()
+  return api.get<PendingApproval[]>(`/approvals/${qs ? `?${qs}` : ''}`)
+}
+
+export async function getApproval(approvalId: number): Promise<PendingApproval> {
+  return api.get<PendingApproval>(`/approvals/${approvalId}`)
+}
+
+export async function reviewApproval(
+  approvalId: number,
+  approved: boolean,
+  note?: string,
+): Promise<{ message: string }> {
+  return api.put(`/approvals/${approvalId}/review`, { approved, note })
+}
+
+export async function expireApprovals(): Promise<{ expired_count: number }> {
+  return api.post('/approvals/expire')
+}
+
+/* ========================= 通知管理 ========================= */
+
+export async function listNotifications(filters?: {
+  is_read?: boolean
+  type?: string
+  page?: number
+  page_size?: number
+}): Promise<Notification[]> {
+  const params = new URLSearchParams()
+  if (filters?.is_read !== undefined) params.set('is_read', String(filters.is_read))
+  if (filters?.type) params.set('type', filters.type)
+  if (filters?.page) params.set('page', String(filters.page))
+  if (filters?.page_size) params.set('page_size', String(filters.page_size))
+  const qs = params.toString()
+  return api.get<Notification[]>(`/notifications/${qs ? `?${qs}` : ''}`)
+}
+
+export async function getUnreadNotificationCount(): Promise<{ unread_count: number }> {
+  return api.get('/notifications/unread-count')
+}
+
+export async function markNotificationRead(notificationId: number): Promise<void> {
+  await api.put(`/notifications/${notificationId}/read`)
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await api.put('/notifications/read-all')
+}
+
+export async function deleteNotification(notificationId: number): Promise<void> {
+  await api.delete(`/notifications/${notificationId}`)
+}
+
+/* ========================= 安全模式管理 ========================= */
+
+export async function getSecurityConfig(): Promise<import('../types').SecurityConfig> {
+  return api.get<import('../types').SecurityConfig>('/security/config')
+}
+
+export async function getSecurityConfigDetail(): Promise<import('../types').SecurityConfigDetail> {
+  return api.get<import('../types').SecurityConfigDetail>('/security/config/detail')
+}
+
+export async function enableEnhancedMode(data: {
+  encrypted_key: string
+  mnemonic_hash: string
+}): Promise<{ message: string }> {
+  return api.post('/security/enable-enhanced', data)
+}
+
+export async function verifyMnemonic(data: {
+  mnemonic_hash: string
+}): Promise<{ verified: boolean; message: string }> {
+  return api.post('/security/verify-mnemonic', data)
+}
+
+export async function disableEnhancedMode(data: {
+  mnemonic_hash: string
+}): Promise<{ message: string }> {
+  return api.post('/security/disable-enhanced', data)
+}
+
+export async function uploadFamilyKey(data: {
+  encrypted_family_key: string
+}): Promise<{ message: string }> {
+  return api.post('/security/upload-family-key', data)
+}
+
+/* ========================= 修改密码 ========================= */
+
+export async function changePassword(data: {
+  old_password: string
+  new_password: string
+}): Promise<void> {
+  await api.put('/auth/password', data)
+}
+
+/* ========================= 密码重置 ========================= */
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await api.post('/auth/password-reset/request', { email })
+}
+
+export async function confirmPasswordReset(data: {
+  email: string
+  code: string
+  new_password: string
+}): Promise<void> {
+  await api.post('/auth/password-reset/confirm', data)
+}
+
+/* ========================= 个人账户管理 ========================= */
+
+export async function getProfile(): Promise<ProfileResponse> {
+  return api.get<ProfileResponse>('/account/profile')
+}
+
+export async function updateProfile(data: {
+  nickname?: string
+  auto_lock_minutes?: number
+}): Promise<void> {
+  await api.put('/account/profile', data)
+}
+
+export async function getSecurityEmails(): Promise<SecurityEmailItem[]> {
+  return api.get<SecurityEmailItem[]>('/account/security-emails')
+}
+
+export async function sendSecurityEmailCode(email: string): Promise<void> {
+  await api.post('/account/security-emails/send-code', { email })
+}
+
+export async function addSecurityEmail(email: string, code: string): Promise<void> {
+  await api.post('/account/security-emails', { email, code })
+}
+
+export async function deleteSecurityEmail(emailId: number): Promise<void> {
+  await api.delete(`/account/security-emails/${emailId}`)
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  await api.post('/account/delete', { password })
+}
+
+/* ========================= 管理后台 ========================= */
+
+export async function getAdminUsers(
+  page: number = 1,
+  pageSize: number = 20,
+): Promise<PaginatedResponse<AdminUser>> {
+  return api.get<PaginatedResponse<AdminUser>>(
+    `/admin/users?page=${page}&page_size=${pageSize}`
+  )
+}
+
+export async function createAdminUser(data: AdminUserCreate): Promise<AdminUser> {
+  return api.post<AdminUser>('/admin/users', data)
+}
+
+export async function updateAdminUser(userId: number, data: AdminUserUpdate): Promise<void> {
+  await api.put(`/admin/users/${userId}`, data)
+}
+
+export async function deleteAdminUser(userId: number): Promise<void> {
+  await api.delete(`/admin/users/${userId}`)
+}
+
+export async function getSystemSettings(): Promise<SystemSettings> {
+  return api.get<SystemSettings>('/admin/settings')
+}
+
+export async function updateSystemSettings(data: {
+  smtp_host?: string
+  smtp_port?: number
+  smtp_user?: string
+  smtp_password?: string
+}): Promise<void> {
+  await api.put('/admin/settings', data)
 }

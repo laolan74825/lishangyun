@@ -59,4 +59,26 @@ export const api = {
   delete<T>(path: string): Promise<T> {
     return request<T>(path, { method: 'DELETE' })
   },
+  async getBlob(path: string): Promise<Blob> {
+    const token = getToken()
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    const res = await fetch(`${API_BASE}${path}`, { headers })
+    if (res.status === 401) {
+      clearToken()
+      window.location.href = '/login'
+      throw new ApiError(401, '未授权')
+    }
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const body = await res.json()
+        detail = body.detail || body.message || detail
+      } catch { /* ignore */ }
+      throw new ApiError(res.status, detail)
+    }
+    return res.blob()
+  },
 }

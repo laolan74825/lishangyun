@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 
 class MigrationPayload(BaseModel):
+    owner_id: int | None = None
     persons: list[dict] = []
     payment_accounts: list[dict] = []
     guestbooks: list[dict] = []

@@ -1,24 +1,21 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import NameAutocomplete from '../components/NameAutocomplete'
-import type { RecordType, PaymentAccount } from '../types'
-import { createDailyRecord, getPaymentAccounts } from '../lib/api-client'
+import type { RecordType } from '../types'
+import { useActivePaymentAccounts, useCreateDailyRecord } from '../hooks/useQueries'
 
 const eventTypes = [
-  '婚礼',
-  '满月酒',
-  '周岁宴',
-  '乔迁',
-  '升学宴',
-  '寿宴',
-  '回门宴',
-  '生日',
-  '丧葬',
-  '节日红包',
-  '其他'
+  { value: 'wedding', label: '婚礼' },
+  { value: 'fullmoon', label: '满月酒' },
+  { value: 'birthday', label: '周岁宴' },
+  { value: 'housewarming', label: '乔迁' },
+  { value: 'graduation', label: '升学宴' },
+  { value: 'funeral', label: '丧葬' },
+  { value: 'holiday', label: '节日红包' },
+  { value: 'other', label: '其他' }
 ]
 
 /** 日常记账表单（需求 F-1.1 ~ F-1.5，场景一；含人员联想 + 收款账户选择） */
@@ -28,26 +25,22 @@ export default function RecordFormPage() {
   const [personName, setPersonName] = useState('')
   const [phone, setPhone] = useState('')
   const [amount, setAmount] = useState('')
-  const [eventType, setEventType] = useState('婚礼')
+  const [eventType, setEventType] = useState('wedding')
   const [paymentMethod, setPaymentMethod] = useState('')
   const [accountId, setAccountId] = useState<number | ''>('')
-  const [accounts, setAccounts] = useState<PaymentAccount[]>([])
   const [eventDate, setEventDate] = useState(dayjs().format('YYYY-MM-DD'))
   const [note, setNote] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [isPrivate, setIsPrivate] = useState(false)
   const { toast, showToast } = useToast()
 
-  // 加载可用收款账户
-  useEffect(() => {
-    getPaymentAccounts().then(setAccounts)
-  }, [])
+  const { data: accounts = [] } = useActivePaymentAccounts()
+  const createMutation = useCreateDailyRecord()
 
-  // 按支付方式筛选账户
   const filteredAccounts = useMemo(() => {
-    if (!paymentMethod) return accounts.filter((a) => a.is_active)
+    if (!paymentMethod) return accounts
     const accType = paymentMethod === 'cash' ? 'cash' : paymentMethod === 'wechat' ? 'wechat' : undefined
-    if (!accType) return accounts.filter((a) => a.is_active)
-    return accounts.filter((a) => a.type === accType && a.is_active)
+    if (!accType) return accounts
+    return accounts.filter((a) => a.type === accType)
   }, [paymentMethod, accounts])
 
   const handleSubmit = async () => {
@@ -56,36 +49,40 @@ export default function RecordFormPage() {
       return
     }
     const amountFen = Math.round(parseFloat(amount) * 100)
-    if (isNaN(amountFen) || amountFen <= 0) {
-      showToast('金额无效')
+    if (isNaN(amountFen) || amountFen < 100) {
+      showToast('金额至少为 ¥1.00')
+      return
+    }
+    if (amountFen > 50000000) {
+      showToast('金额不能超过 ¥500,000.00')
       return
     }
 
-    setLoading(true)
-    try {
-      await createDailyRecord({
-        type,
-        person_name: personName.trim(),
-        phone: phone.trim() || undefined,
-        amount: amountFen,
-        event_type: eventType,
-        payment_method: (paymentMethod as 'cash' | 'wechat' | 'other') || undefined,
-        account_id: accountId || undefined,
-        event_date: eventDate,
-        note: note.trim() || undefined
-      })
-      showToast('记录已保存')
-      setTimeout(() => navigate('/records'), 500)
-    } catch (e) {
-      showToast('保存失败：' + (e as Error).message)
-    } finally {
-      setLoading(false)
-    }
+    createMutation.mutate({
+      type,
+      person_name: personName.trim(),
+      phone: phone.trim() || undefined,
+      amount: amountFen,
+      event_type: eventType,
+      payment_method: (paymentMethod as 'cash' | 'wechat' | 'other') || undefined,
+      account_id: accountId || undefined,
+      event_date: eventDate,
+      note: note.trim() || undefined,
+      is_private: isPrivate,
+    }, {
+      onSuccess: () => {
+        showToast('记录已保存')
+        setTimeout(() => navigate({ to: '/records' }), 500)
+      },
+      onError: (e) => {
+        showToast('保存失败：' + e.message)
+      }
+    })
   }
 
   return (
-    <PageScaffold title="记一笔" description="日常人情随礼记录（30 秒内完成）">
-      <div className="mx-auto max-w-[36rem] rounded-card bg-card p-6 shadow-card">
+    <PageScaffold title="记一笔">
+      <div className="mx-auto w-full max-w-[36rem] rounded-card bg-card p-4 shadow-card xl:p-6">
         {/* 类型切换 Tab（送出去 / 收进来） */}
         <div className="flex rounded-btn bg-bg p-1">
           {(
@@ -97,7 +94,7 @@ export default function RecordFormPage() {
             <button
               key={tab.value}
               onClick={() => setType(tab.value)}
-              className={`flex-1 rounded-btn py-3 font-semibold transition-colors ${
+              className={`flex-1 rounded-btn py-2.5 text-sm font-semibold transition-colors xl:py-3 xl:text-base ${
                 type === tab.value ? 'bg-primary text-white' : 'text-ink-secondary'
               }`}
             >
@@ -107,8 +104,8 @@ export default function RecordFormPage() {
         </div>
 
         {/* 表单字段 */}
-        <div className="mt-6 flex flex-col gap-4">
-          <label className="flex flex-col gap-1">
+        <div className="mt-4 flex flex-col gap-3 xl:mt-6 xl:gap-4">
+          <label className="flex min-w-0 flex-col gap-1">
             <span className="text-caption text-ink-secondary">
               金额（元）<span className="text-danger">*</span>
             </span>
@@ -117,12 +114,12 @@ export default function RecordFormPage() {
               onChange={(e) => setAmount(e.target.value)}
               inputMode="decimal"
               placeholder="0.00"
-              className="h-14 rounded-btn border border-line px-4 text-amount outline-none focus:border-2 focus:border-primary"
+              className="h-12 w-full min-w-0 rounded-btn border border-line px-3 text-2xl font-bold outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4 xl:text-amount"
             />
           </label>
 
           {/* 对方姓名（带联想 F-1.1） */}
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 flex-col gap-1">
             <span className="text-caption text-ink-secondary">
               对方姓名<span className="text-danger">*</span>
             </span>
@@ -130,31 +127,31 @@ export default function RecordFormPage() {
               value={personName}
               onChange={setPersonName}
               placeholder="请输入姓名"
-              className="h-14 w-full rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
+              className="h-12 w-full min-w-0 rounded-btn border border-line px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
             />
           </label>
 
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 flex-col gap-1">
             <span className="text-caption text-ink-secondary">电话号码（选填）</span>
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               inputMode="tel"
               placeholder="138xxxx"
-              className="h-14 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
+              className="h-12 w-full min-w-0 rounded-btn border border-line px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
             />
           </label>
 
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 flex-col gap-1">
             <span className="text-caption text-ink-secondary">事由 / 事件</span>
             <select
               value={eventType}
               onChange={(e) => setEventType(e.target.value)}
-              className="h-14 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
+              className="h-12 w-full min-w-0 rounded-btn border border-line bg-white px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
             >
               {eventTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+                <option key={t.value} value={t.value}>
+                  {t.label}
                 </option>
               ))}
             </select>
@@ -162,7 +159,7 @@ export default function RecordFormPage() {
 
           {type === 'in' && (
             <>
-              <label className="flex flex-col gap-1">
+              <label className="flex min-w-0 flex-col gap-1">
                 <span className="text-caption text-ink-secondary">收款方式</span>
                 <select
                   value={paymentMethod}
@@ -170,7 +167,7 @@ export default function RecordFormPage() {
                     setPaymentMethod(e.target.value)
                     setAccountId('')
                   }}
-                  className="h-14 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
+                  className="h-12 w-full min-w-0 rounded-btn border border-line bg-white px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
                 >
                   <option value="">请选择</option>
                   <option value="cash">现金</option>
@@ -181,12 +178,12 @@ export default function RecordFormPage() {
 
               {/* 收款账户选择 */}
               {paymentMethod && filteredAccounts.length > 0 && (
-                <label className="flex flex-col gap-1">
+                <label className="flex min-w-0 flex-col gap-1">
                   <span className="text-caption text-ink-secondary">收款账户</span>
                   <select
                     value={accountId}
                     onChange={(e) => setAccountId(Number(e.target.value))}
-                    className="h-14 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
+                    className="h-12 w-full min-w-0 rounded-btn border border-line bg-white px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
                   >
                     <option value="">请选择收款账户</option>
                     {filteredAccounts.map((a) => (
@@ -198,33 +195,46 @@ export default function RecordFormPage() {
             </>
           )}
 
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 flex-col gap-1">
             <span className="text-caption text-ink-secondary">日期</span>
             <input
               type="date"
               value={eventDate}
               onChange={(e) => setEventDate(e.target.value)}
-              className="h-14 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
+              className="h-12 w-full min-w-0 rounded-btn border border-line px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
             />
           </label>
 
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 flex-col gap-1">
             <span className="text-caption text-ink-secondary">备注（选填）</span>
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="如：代谁送礼、特殊情况说明"
-              className="h-14 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
+              className="h-12 w-full min-w-0 rounded-btn border border-line px-3 text-base outline-none focus:border-2 focus:border-primary xl:h-14 xl:px-4"
             />
+          </label>
+
+          <label className="flex cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              checked={isPrivate}
+              onChange={(e) => setIsPrivate(e.target.checked)}
+              className="h-5 w-5 rounded border-line accent-primary"
+            />
+            <div>
+              <span className="text-sm font-medium text-ink">隐私记录</span>
+              <span className="ml-1 text-xs text-ink-secondary">同步云端但仅本人可见</span>
+            </div>
           </label>
         </div>
 
         <button
           onClick={handleSubmit}
-          disabled={loading || !personName.trim() || !amount || !eventDate}
-          className="mt-6 h-14 w-full rounded-btn bg-primary text-base font-bold text-white disabled:bg-disabled"
+          disabled={createMutation.isPending || !personName.trim() || !amount || !eventDate}
+          className="mt-4 h-12 w-full rounded-btn bg-primary text-base font-bold text-white disabled:bg-disabled xl:mt-6 xl:h-14"
         >
-          {loading ? '保存中…' : '保存'}
+          {createMutation.isPending ? '保存中…' : '保存'}
         </button>
       </div>
 

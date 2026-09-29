@@ -1,20 +1,36 @@
 import dayjs from 'dayjs'
 import type { GbRecord } from '../../types'
+import { amountToChinese } from '../../lib/format'
 
 /** 最近收款记录列表（分页） */
 export default function RecentRecordsPanel({
   records,
   page,
   pageSize,
-  onPageChange
+  onPageChange,
+  selectedIds = [],
+  onToggleSelect,
+  onClearSelection
 }: {
   records: GbRecord[]
   page: number
   pageSize: number
   onPageChange: (p: number) => void
+  selectedIds?: number[]
+  onToggleSelect?: (id: number) => void
+  onClearSelection?: () => void
 }) {
   const totalPages = Math.max(1, Math.ceil(records.length / pageSize))
-  const paged = records.slice((page - 1) * pageSize, page * pageSize)
+  // 最新的记录显示在最上面
+  const sorted = [...records].sort((a, b) =>
+    new Date(b.record_time).getTime() - new Date(a.record_time).getTime()
+  )
+  const paged = sorted.slice((page - 1) * pageSize, page * pageSize)
+
+  // 计算选中记录的合计金额
+  const selectedRecords = records.filter((r) => selectedIds.includes(r.id!))
+  const selectedCount = selectedRecords.length
+  const selectedTotal = selectedRecords.reduce((sum, r) => sum + r.amount, 0)
 
   return (
     <div className="rounded-card bg-card p-4 shadow-card">
@@ -35,17 +51,25 @@ export default function RecentRecordsPanel({
                 r.check_status === 'checked' ? 'bg-success-bg/50' : 'bg-bg'
               }`}
             >
-              <div className="flex flex-col">
-                <span className="font-medium text-ink">
-                  {r.guest_name}
-                  {r.agent_name && (
-                    <span className="text-ink-secondary">（{r.agent_name} 代）</span>
-                  )}
-                </span>
-                <span className="text-caption text-ink-secondary">
-                  {dayjs(r.record_time).format('HH:mm:ss')} ·{' '}
-                  {r.payment_method === 'cash' ? '现金' : r.payment_method === 'wechat' ? '微信' : '其他'}
-                </span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(r.id!)}
+                  onChange={() => onToggleSelect?.(r.id!)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <div className="flex flex-col">
+                  <span className="font-medium text-ink">
+                    {r.guest_name}
+                    {r.agent_name && (
+                      <span className="text-ink-secondary">（{r.agent_name} 代）</span>
+                    )}
+                  </span>
+                  <span className="text-caption text-ink-secondary">
+                    {dayjs(r.record_time).format('HH:mm:ss')} ·{' '}
+                    {r.payment_method === 'cash' ? '现金' : r.payment_method === 'wechat' ? '微信' : '其他'}
+                  </span>
+                </div>
               </div>
               <div className="text-right">
                 <span className="font-bold text-ink">¥{(r.amount / 100).toFixed(2)}</span>
@@ -56,6 +80,24 @@ export default function RecentRecordsPanel({
             </li>
           ))}
         </ul>
+      )}
+      {selectedCount > 0 && (
+        <div className="mt-3 flex items-center justify-between rounded-btn bg-primary/10 px-3 py-2 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-primary">
+              已勾选 {selectedCount} 条，合计 ¥{(selectedTotal / 100).toFixed(2)}
+            </span>
+            {onClearSelection && (
+              <button
+                onClick={onClearSelection}
+                className="text-xs text-ink-secondary hover:text-danger"
+              >
+                取消选择
+              </button>
+            )}
+          </div>
+          <span className="text-xs text-ink-secondary">{amountToChinese(selectedTotal)}</span>
+        </div>
       )}
       {totalPages > 1 && (
         <div className="mt-3 flex justify-center gap-2">
