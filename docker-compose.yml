@@ -37,9 +37,12 @@ services:
   web:
     image: node:22-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run build && cp -r dist/* /static/"
+    # 用 corepack 固定 pnpm 版本，按 pnpm-lock.yaml 精确安装，保证部署可复现。
+    # 匿名卷遮蔽宿主机 node_modules，避免把宿主（可能是 Windows）的二进制带进容器。
+    command: sh -c "corepack enable && corepack prepare pnpm@12.8.1 --activate && pnpm install --frozen-lockfile && pnpm run build && cp -r dist/* /static/"
     volumes:
       - ./web:/app
+      - /app/node_modules
       - static_files:/static
     environment:
       NODE_ENV: production
