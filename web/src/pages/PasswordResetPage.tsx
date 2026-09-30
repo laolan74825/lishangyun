@@ -1,12 +1,17 @@
 import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { requestPasswordReset, confirmPasswordReset } from '../lib/api-client'
+import { requestPasswordReset, confirmPasswordReset, requestPasswordResetHint } from '../lib/api-client'
+import EmailSuggestInput, { rememberEmail } from '../components/EmailSuggestInput'
 
 type Step = 'email' | 'reset'
 
 export default function PasswordResetPage() {
   const [step, setStep] = useState<Step>('email')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
+  const [maskedEmail, setMaskedEmail] = useState('')
+  const [hintError, setHintError] = useState('')
+  const [hintLoading, setHintLoading] = useState(false)
   const [code, setCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -37,12 +42,30 @@ export default function PasswordResetPage() {
     }, 1000)
   }, [])
 
+  /** 根据用户名获取掩码邮箱提示，帮助用户回忆应输入哪个邮箱 */
+  async function fetchEmailHint() {
+    const name = username.trim()
+    if (!name) return
+    setHintError('')
+    setHintLoading(true)
+    try {
+      const res = await requestPasswordResetHint(name)
+      setMaskedEmail(res.masked_email)
+    } catch (err) {
+      setMaskedEmail('')
+      setHintError(err instanceof Error ? err.message : '未找到该用户或用户未绑定安全邮箱')
+    } finally {
+      setHintLoading(false)
+    }
+  }
+
   async function handleSendCode() {
     if (!email) return
     setError('')
     setSending(true)
     try {
       await requestPasswordReset(email)
+      rememberEmail(email)
       startCountdown()
       setStep('reset')
     } catch (err: unknown) {
@@ -106,22 +129,60 @@ export default function PasswordResetPage() {
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-ink">🔑 重置密码</h1>
           <p className="mt-2 text-sm text-ink-secondary">
-            {step === 'email' ? '输入安全邮箱，获取验证码' : '输入验证码和新密码'}
+            {step === 'email' ? '输入用户名和安全邮箱，获取验证码' : '输入验证码和新密码'}
           </p>
         </div>
 
         {step === 'email' ? (
           <div className="flex flex-col gap-4">
             <div>
+              <label className="mb-1 block text-sm font-medium text-ink">用户名</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value)
+                    setMaskedEmail('')
+                    setHintError('')
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      fetchEmailHint()
+                    }
+                  }}
+                  required
+                  autoFocus
+                  className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+                  placeholder="请输入用户名"
+                />
+                <button
+                  type="button"
+                  onClick={fetchEmailHint}
+                  disabled={hintLoading || !username.trim()}
+                  className="whitespace-nowrap rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
+                >
+                  {hintLoading ? '查询中…' : '邮箱提示'}
+                </button>
+              </div>
+              {maskedEmail && (
+                <p className="mt-1.5 text-xs text-ink-secondary">
+                  您的安全邮箱为 <span className="font-medium text-ink">{maskedEmail}</span>，请在下方输入完整邮箱地址
+                </p>
+              )}
+              {hintError && (
+                <p className="mt-1.5 text-xs text-danger">{hintError}</p>
+              )}
+            </div>
+
+            <div>
               <label className="mb-1 block text-sm font-medium text-ink">安全邮箱</label>
-              <input
-                type="email"
+              <EmailSuggestInput
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={setEmail}
                 required
-                autoFocus
-                className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
-                placeholder="请输入注册时的安全邮箱"
+                placeholder={maskedEmail ? `请输入 ${maskedEmail} 的完整邮箱地址` : '请输入注册时的安全邮箱'}
               />
             </div>
 

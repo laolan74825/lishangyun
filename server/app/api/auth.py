@@ -22,6 +22,7 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
     PasswordResetConfirm,
+    PasswordResetEmailHintRequest,
     PasswordResetRequest,
     RegisterRequest,
     SendVerificationCodeRequest,
@@ -244,6 +245,40 @@ async def change_password(
     current_user.password_hash = hash_password(body.new_password)
     await db.commit()
     return {"message": "密码已修改"}
+
+
+@router.post("/password-reset/email-hint")
+async def password_reset_email_hint(body: PasswordResetEmailHintRequest, db: DbSession):
+    """根据用户名返回掩码后的安全邮箱，帮助用户回忆应输入哪个邮箱。
+
+    只暴露掩码（保留前 1-2 个字符 + 完整域名），不泄露完整地址；
+    用户不存在或未绑定安全邮箱时返回统一模糊文案，避免用户名枚举。
+    """
+    username = body.username.strip()
+    result = await db.execute(
+        select(User).where(User.username == username, User.is_deleted == False)
+    )
+    user = result.scalar_one_or_none()
+    if user:
+        email_result = await db.execute(
+            select(SecurityEmail)
+            .where(SecurityEmail.user_id == user.id, SecurityEmail.is_verified == True)
+            .order_by(SecurityEmail.is_primary.desc(), SecurityEmail.id)
+            .limit(1)
+        )
+        security_email = email_result.scalar_one_or_none()
+        if security_email:
+            return {"masked_email": _mask_email(security_email.email)}
+    raise HTTPException(status_code=404, detail="未找到该用户或用户未绑定安全邮箱")
+
+
+def _mask_email(email: str) -> str:
+    """邮箱掩码：保留用户名前 1-2 位，其余以 *** 代替，域名保留完整。"""
+    local, sep, domain = email.partition("@")
+    if not sep or not domain:
+        return "***"
+    head = local[:2] if len(local) > 4 else local[:1]
+    return f"{head}***@{domain}"
 
 
 @router.post("/password-reset/request")

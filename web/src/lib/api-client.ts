@@ -1035,6 +1035,10 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await api.post('/auth/password-reset/request', { email })
 }
 
+export async function requestPasswordResetHint(username: string): Promise<{ masked_email: string }> {
+  return api.post('/auth/password-reset/email-hint', { username })
+}
+
 export async function confirmPasswordReset(data: {
   email: string
   code: string
