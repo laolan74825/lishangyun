@@ -114,6 +114,40 @@ class TestReceivedToday:
         assert resp.status_code == 200
         assert resp.json()["received"] == 80000
 
+    async def test_received_today_boundary_uses_local_date(self, client, admin_headers, db_session):
+        """时区回归：record_time 以无时区 UTC 存储，查询按本地日期换算。
+        本地零点整的记录必须计入当天，前一秒的记录必须排除。"""
+        from datetime import date, datetime, timedelta, timezone
+
+        account_id = _create_account(client, admin_headers).json()
+        gb_id = client.post("/api/guestbooks/", json={
+            "name": "边界礼簿",
+            "event_type": "wedding",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers).json()["id"]
+
+        today = date.today()
+        local_midnight = datetime.combine(today, datetime.min.time())
+        start_utc = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+        before_utc = start_utc - timedelta(seconds=1)
+
+        for amount, ts in ((50000, start_utc), (30000, before_utc)):
+            resp = client.post(f"/api/guestbooks/{gb_id}/records", json={
+                "guest_name": "边界",
+                "amount": amount,
+                "payment_method": "cash",
+                "account_id": account_id,
+                "record_time": ts.isoformat(),
+            }, headers=admin_headers)
+            assert resp.status_code == 200
+
+        resp = client.get(
+            f"/api/payment-accounts/{account_id}/received-today?date={today.isoformat()}",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["received"] == 50000
+
 
 class TestDataIsolation:
     async def test_user_cannot_see_other_accounts(self, client, admin_headers, user_headers, db_session):

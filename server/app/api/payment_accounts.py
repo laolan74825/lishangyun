@@ -1,4 +1,4 @@
-from datetime import date as date_type, datetime
+from datetime import date as date_type, datetime, timezone
 from app.core.time import utcnow
 from typing import Annotated
 
@@ -201,9 +201,10 @@ async def received_today(
 ):
     # 解析日期字符串为 date 对象
     query_date = datetime.strptime(date, "%Y-%m-%d").date()
-    # 构造当天的时间范围（00:00:00 到 23:59:59）
-    start = datetime.combine(query_date, datetime.min.time())
-    end = datetime.combine(query_date, datetime.max.time())
+    # record_time 以无时区 UTC 存储，查询的"某天"按本地日期理解，
+    # 需把本地日期的起止换算成 UTC 时间范围，避免时区错位导致漏数
+    start = datetime.combine(query_date, datetime.min.time()).astimezone(timezone.utc).replace(tzinfo=None)
+    end = datetime.combine(query_date, datetime.max.time()).astimezone(timezone.utc).replace(tzinfo=None)
     # 构建查询条件
     conditions = [
         GbRecord.account_id == account_id,  # 指定账户
