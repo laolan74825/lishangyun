@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useGuestbooks } from '../../hooks/useQueries'
+import { isAdmin } from '../../lib/auth'
 import type { GuestbookStatus } from '../../types'
 
 const STATUS_LABELS: Record<GuestbookStatus, string> = {
@@ -60,6 +61,15 @@ export default function DesktopSidebar() {
 
       <div className="shrink-0 border-t border-line p-4">
         <div className="flex flex-col gap-1">
+          {isAdmin() && (
+            <Link
+              to="/admin"
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+            >
+              <span>🛠️</span>
+              管理后台
+            </Link>
+          )}
           <Link
             to="/family"
             className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-ink hover:bg-bg"
