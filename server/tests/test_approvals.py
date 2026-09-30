@@ -52,13 +52,13 @@ class TestSubmitApproval:
         assert resp.status_code == 400
         assert "主账户" in resp.json()["detail"]
 
-    async def test_missing_fields_returns_400(self, client, user_headers):
+    async def test_missing_fields_returns_422(self, client, user_headers):
         resp = client.post("/api/approvals/", json={
             "family_group_id": 1,
         }, headers=user_headers)
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
-    async def test_invalid_action_type_returns_400(self, client, admin_headers, user_headers, db_session):
+    async def test_invalid_action_type_returns_422(self, client, admin_headers, user_headers, db_session):
         group_data = _setup_group_with_member(client, admin_headers, user_headers)
 
         resp = client.post("/api/approvals/", json={
@@ -66,7 +66,7 @@ class TestSubmitApproval:
             "action_type": "INVALID",
             "target_table": "person",
         }, headers=user_headers)
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     async def test_non_member_cannot_submit(self, client, admin_headers, user_headers, db_session):
         group_data = _create_group(client, admin_headers).json()

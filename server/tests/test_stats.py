@@ -34,7 +34,7 @@ class TestPersonRanking:
         assert resp.json() == []
 
     async def test_ranking_with_data(self, client, admin_headers, normal_user, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
 
         client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",
@@ -69,7 +69,7 @@ class TestTransactionByName:
         assert data["net"] == 0
 
     async def test_transaction_with_gb_records(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
 
         client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",
@@ -93,7 +93,7 @@ class TestTransactionByName:
 
 class TestStatsIsolation:
     async def test_user_cannot_see_other_stats(self, client, admin_headers, user_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",
             "amount": 50000,

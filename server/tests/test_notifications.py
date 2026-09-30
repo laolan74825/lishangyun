@@ -109,8 +109,8 @@ class TestMarkRead:
         assert resp.status_code == 200
         assert resp.json()["message"] == "已标记为已读"
 
-        result = await db_session.execute(select(Notification).where(Notification.id == n.id))
-        assert result.scalar_one().is_read is True
+        await db_session.refresh(n)
+        assert n.is_read is True
 
     async def test_mark_read_nonexistent(self, client, normal_user, db_session):
         from app.core.security import create_access_token

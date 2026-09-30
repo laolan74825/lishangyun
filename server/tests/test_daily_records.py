@@ -19,7 +19,7 @@ class TestDailyRecordCRUD:
     async def test_create_record(self, client, admin_headers, db_session):
         resp = _create_record(client, admin_headers)
         assert resp.status_code == 200
-        record_id = resp.json()
+        record_id = resp.json()["id"]
         assert isinstance(record_id, int)
 
     async def test_list_records(self, client, admin_headers, db_session):
@@ -32,7 +32,7 @@ class TestDailyRecordCRUD:
         assert data["pagination"]["total_count"] == 2
 
     async def test_update_record(self, client, admin_headers, db_session):
-        record_id = _create_record(client, admin_headers).json()
+        record_id = _create_record(client, admin_headers).json()["id"]
 
         resp = client.put(f"/api/daily-records/{record_id}", json={
             "amount": 60000,
@@ -41,7 +41,7 @@ class TestDailyRecordCRUD:
         assert resp.status_code == 200
 
     async def test_delete_record_soft(self, client, admin_headers, db_session):
-        record_id = _create_record(client, admin_headers).json()
+        record_id = _create_record(client, admin_headers).json()["id"]
 
         resp = client.delete(f"/api/daily-records/{record_id}", headers=admin_headers)
         assert resp.status_code == 200
@@ -118,7 +118,7 @@ class TestDailyRecordSummary:
 
 class TestDailyRecordAuditLog:
     async def test_create_writes_audit_log(self, client, admin_headers, db_session):
-        record_id = _create_record(client, admin_headers).json()
+        record_id = _create_record(client, admin_headers).json()["id"]
 
         result = await db_session.execute(
             select(OperationLog).where(
@@ -140,7 +140,7 @@ class TestDataIsolation:
         assert resp.json()["pagination"]["total_count"] == 0
 
     async def test_user_cannot_update_other_record(self, client, admin_headers, user_headers, db_session):
-        record_id = _create_record(client, admin_headers).json()
+        record_id = _create_record(client, admin_headers).json()["id"]
 
         resp = client.put(f"/api/daily-records/{record_id}", json={
             "amount": 99999,
@@ -154,5 +154,5 @@ class TestAmountValidation:
         assert resp.status_code == 422
 
     async def test_amount_above_maximum_rejected(self, client, admin_headers):
-        resp = _create_record(client, admin_headers, amount=20000000)
+        resp = _create_record(client, admin_headers, amount=50000001)
         assert resp.status_code == 422

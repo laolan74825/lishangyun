@@ -19,12 +19,13 @@ def _create_code(client, headers, guestbook_id, grantee_account_id, grantee_name
         "grantee_name": grantee_name,
         "grantee_account_id": grantee_account_id,
         "permissions": "record",
+        "expires_at": "2099-12-31T23:59:59",
     }, headers=headers)
 
 
 class TestAuthorizationCodeCRUD:
     async def test_create_code(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
 
         resp = _create_code(client, admin_headers, gb_id, acct_id)
@@ -41,7 +42,7 @@ class TestAuthorizationCodeCRUD:
         assert resp.status_code == 404
 
     async def test_list_codes(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
 
         _create_code(client, admin_headers, gb_id, acct_id, "张三")
@@ -53,7 +54,7 @@ class TestAuthorizationCodeCRUD:
         assert len(codes) == 2
 
     async def test_list_codes_filter_by_status(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
 
         _create_code(client, admin_headers, gb_id, acct_id)
@@ -64,7 +65,7 @@ class TestAuthorizationCodeCRUD:
         assert all(c["status"] == "active" for c in codes)
 
     async def test_list_codes_filter_by_guestbook(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         _create_code(client, admin_headers, gb_id, acct_id)
 
@@ -74,7 +75,7 @@ class TestAuthorizationCodeCRUD:
         assert all(c["guestbook_id"] == gb_id for c in codes)
 
     async def test_get_code(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 
@@ -89,7 +90,7 @@ class TestAuthorizationCodeCRUD:
 
 class TestAuthorizationCodeRevoke:
     async def test_revoke_code(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 
@@ -101,7 +102,7 @@ class TestAuthorizationCodeRevoke:
         assert code_resp.json()["status"] == "revoked"
 
     async def test_revoke_already_revoked(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 
@@ -112,14 +113,14 @@ class TestAuthorizationCodeRevoke:
 
 class TestAuthorizationCodeBind:
     async def test_bind_code(self, client, admin_headers, normal_user, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_data = _create_code(client, admin_headers, gb_id, acct_id).json()
         code_str = code_data["code"]
 
         resp = client.post("/api/authorization/codes/bind", json={
             "code": code_str,
-            "grantor_account_id": admin_headers,
+            "grantor_account_id": acct_id,
         }, headers=admin_headers)
         assert resp.status_code == 200 or resp.status_code == 403
 
@@ -133,7 +134,7 @@ class TestAuthorizationCodeBind:
 
 class TestAuthorizationActionLogs:
     async def test_logs_after_create(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 
@@ -144,7 +145,7 @@ class TestAuthorizationActionLogs:
         assert any(log["action_type"] == "GENERATE" for log in logs)
 
     async def test_logs_after_revoke(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 
@@ -155,7 +156,7 @@ class TestAuthorizationActionLogs:
         assert any(log["action_type"] == "REVOKE" for log in logs)
 
     async def test_logs_pagination(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 
@@ -167,7 +168,7 @@ class TestAuthorizationActionLogs:
 
 class TestAuthorizationIsolation:
     async def test_user_cannot_see_other_codes(self, client, admin_headers, user_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         _create_code(client, admin_headers, gb_id, acct_id)
 
@@ -176,7 +177,7 @@ class TestAuthorizationIsolation:
         assert len(resp.json()) == 0
 
     async def test_user_cannot_revoke_other_code(self, client, admin_headers, user_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         acct_id = _create_account(client, admin_headers).json()
         code_id = _create_code(client, admin_headers, gb_id, acct_id).json()["id"]
 

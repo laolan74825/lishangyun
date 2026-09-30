@@ -21,4 +21,6 @@ class FamilyGroup(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     owner: Mapped["User"] = relationship(back_populates="family_groups_owned")
-    members: Mapped[list["FamilyMember"]] = relationship(back_populates="family_group")
+    members: Mapped[list["FamilyMember"]] = relationship(
+        back_populates="family_group", passive_deletes=True
+    )

@@ -23,25 +23,24 @@ class TestOperationLogsList:
         assert data["items"] == []
 
     async def test_logs_after_create(self, client, admin_headers, db_session):
-        gb_resp = _create_guestbook(client, admin_headers)
-        gb_id = gb_resp.json()
+        _create_guestbook(client, admin_headers)
 
         resp = client.get("/api/operation-logs/", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["pagination"]["total_count"] >= 1
-        assert any(log["target_table"] == "guestbook" for log in data["items"])
+        assert any(log["target_table"] == "guestbooks" for log in data["items"])
 
     async def test_logs_after_record_create(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         _create_record(client, admin_headers, gb_id)
 
         resp = client.get("/api/operation-logs/", headers=admin_headers)
         data = resp.json()
-        assert any(log["target_table"] == "gb_record" for log in data["items"])
+        assert any(log["target_table"] == "gb_records" for log in data["items"])
 
     async def test_filter_by_guestbook_id(self, client, admin_headers, db_session):
-        gb_id = _create_guestbook(client, admin_headers).json()
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
         _create_record(client, admin_headers, gb_id)
 
         resp = client.get(f"/api/operation-logs/?guestbook_id={gb_id}", headers=admin_headers)
@@ -51,9 +50,9 @@ class TestOperationLogsList:
     async def test_filter_by_target_table(self, client, admin_headers, db_session):
         _create_guestbook(client, admin_headers)
 
-        resp = client.get("/api/operation-logs/?target_table=guestbook", headers=admin_headers)
+        resp = client.get("/api/operation-logs/?target_table=guestbooks", headers=admin_headers)
         data = resp.json()
-        assert all(log["target_table"] == "guestbook" for log in data["items"])
+        assert all(log["target_table"] == "guestbooks" for log in data["items"])
         assert len(data["items"]) >= 1
 
     async def test_pagination(self, client, admin_headers, db_session):

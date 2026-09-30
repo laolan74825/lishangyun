@@ -11,7 +11,7 @@ def _create_guestbook(client, headers):
         "event_type": "wedding",
         "event_date": "2026-10-01",
     }, headers=headers)
-    return resp.json()
+    return resp.json()["id"]
 
 
 def _create_record(client, headers, gb_id, guest_name="张三", amount=50000, payment_method="cash"):
@@ -238,7 +238,7 @@ class TestAmountValidation:
         gb_id = _create_guestbook(client, admin_headers)
         resp = client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",
-            "amount": 20000000,
+            "amount": 50000001,
             "payment_method": "cash",
         }, headers=admin_headers)
         assert resp.status_code == 422

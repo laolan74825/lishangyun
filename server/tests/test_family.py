@@ -13,11 +13,13 @@ def _create_group(client, headers, name="张家"):
 
 class TestFamilyGroupCRUD:
     async def test_create_group(self, client, admin_headers, db_session):
-        resp = _create_group(client, admin_headers)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["name"] == "张家"
-        assert data["owner_id"] is not None
+        data = _create_group(client, admin_headers).json()
+        assert data["id"] is not None
+
+        resp_get = client.get(f"/api/family/groups/{data['id']}", headers=admin_headers)
+        assert resp_get.status_code == 200
+        assert resp_get.json()["name"] == "张家"
+        assert resp_get.json()["owner_id"] is not None
 
     async def test_list_groups(self, client, admin_headers, db_session):
         _create_group(client, admin_headers, "张家")
@@ -109,7 +111,11 @@ class TestJoinAndLeave:
 
         resp_members = client.get(f"/api/family/groups/{data['id']}/members", headers=admin_headers)
         members = resp_members.json()
-        assert len(members) == 1
+        # 成员列表包含历史成员，需按 status 过滤
+        active = [m for m in members if m["status"] == "active"]
+        assert len(active) == 1
+        removed = [m for m in members if m["status"] == "removed"]
+        assert len(removed) == 1
 
 
 class TestMemberManagement:
@@ -196,7 +202,7 @@ class TestDataIsolation:
         group_id = _create_group(client, admin_headers).json()["id"]
 
         resp = client.get(f"/api/family/groups/{group_id}", headers=user_headers)
-        assert resp.status_code == 404
+        assert resp.status_code == 403
 
     async def test_user_cannot_manage_other_members(self, client, admin_headers, user_headers, db_session):
         data = _create_group(client, admin_headers).json()

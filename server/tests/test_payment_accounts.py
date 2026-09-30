@@ -91,7 +91,7 @@ class TestReceivedToday:
             "event_type": "wedding",
             "event_date": "2026-09-20",
         }, headers=admin_headers)
-        gb_id = gb_resp.json()
+        gb_id = gb_resp.json()["id"]
 
         client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",

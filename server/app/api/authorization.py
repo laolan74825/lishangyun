@@ -25,7 +25,6 @@ def _generate_code() -> str:
 
 @router.post("/codes", response_model=dict)
 async def create_code(body: AuthorizationCodeCreate, db: DbSession, current_user: CurrentUser):
-    print(f"[DEBUG] create_code called with: guestbook_id={body.guestbook_id}, grantee_name={body.grantee_name}")
     result = await db.execute(
         select(Guestbook).where(
             Guestbook.id == body.guestbook_id,
@@ -34,14 +33,12 @@ async def create_code(body: AuthorizationCodeCreate, db: DbSession, current_user
         )
     )
     guestbook = result.scalar_one_or_none()
-    print(f"[DEBUG] guestbook found: {guestbook}")
     if not guestbook:
         raise HTTPException(404, "礼簿不存在")
 
     expires_at = body.expires_at
     if expires_at.tzinfo is not None:
         expires_at = expires_at.replace(tzinfo=None)
-    print(f"[DEBUG] expires_at: {expires_at}, utcnow: {utcnow()}")
 
     if expires_at <= utcnow():
         raise HTTPException(400, "过期时间不能早于当前时间")
@@ -56,10 +53,8 @@ async def create_code(body: AuthorizationCodeCreate, db: DbSession, current_user
         expires_at=expires_at,
         status="active",
     )
-    print(f"[DEBUG] adding code to db")
     db.add(code)
     await db.flush()
-    print(f"[DEBUG] code flushed, id={code.id}")
 
     log = AuthorizationActionLog(
         authorization_code_id=code.id,
@@ -69,7 +64,6 @@ async def create_code(body: AuthorizationCodeCreate, db: DbSession, current_user
     )
     db.add(log)
     await db.commit()
-    print(f"[DEBUG] committed, returning code={code.code}")
     return {"id": code.id, "code": code.code}
 
 
