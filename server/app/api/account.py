@@ -69,21 +69,19 @@ async def send_email_code(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="该邮箱已被其他账户使用")
 
-    existing = await db.execute(
-        select(EmailVerificationCode).where(
-            EmailVerificationCode.email == email,
-            EmailVerificationCode.used == False,
-            EmailVerificationCode.expires_at > utcnow(),
-        )
+    from app.api.auth import (
+        CODE_EXPIRE_MINUTES,
+        _enforce_resend_interval,
+        _generate_code,
+        _get_smtp_config,
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=429, detail="验证码已发送，请查看邮箱或稍后再试")
 
-    from app.api.auth import _generate_code, _get_smtp_config
+    await _enforce_resend_interval(db, EmailVerificationCode, email)
+
     smtp_host, smtp_port, smtp_user, smtp_pass = await _get_smtp_config(db)
 
     code = _generate_code()
-    vc = EmailVerificationCode(email=email, code=code, expires_at=utcnow() + timedelta(minutes=1))
+    vc = EmailVerificationCode(email=email, code=code, expires_at=utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES))
     db.add(vc)
     await db.commit()
 

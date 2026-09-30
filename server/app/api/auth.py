@@ -5,7 +5,7 @@ from datetime import timedelta
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 logger = logging.getLogger(__name__)
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.core.crypto import decrypt_value, encrypt_value
 from app.core.dependencies import CurrentUser, DbSession, get_current_user
@@ -31,6 +31,11 @@ from app.schemas.auth import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# 验证码有效期：10 分钟，给真实用户留足查收邮件的时间
+CODE_EXPIRE_MINUTES = 10
+# 同一邮箱的重发节流间隔（秒）
+CODE_RESEND_INTERVAL_SECONDS = 60
+
 
 @router.get("/status")
 async def auth_status(db: DbSession):
@@ -43,6 +48,25 @@ async def auth_status(db: DbSession):
 def _generate_code() -> str:
     """生成 6 位数字验证码（密码学安全随机数）。"""
     return "".join(str(secrets.randbelow(10)) for _ in range(6))
+
+
+async def _enforce_resend_interval(db: DbSession, model, email: str) -> None:
+    """同一邮箱在节流间隔内只允许发一次验证码；超过间隔则清除旧的未使用验证码。"""
+    result = await db.execute(
+        select(model).where(
+            model.email == email,
+            model.used == False,
+            model.expires_at > utcnow(),
+        ).order_by(model.created_at.desc())
+    )
+    latest = result.scalars().first()
+    if latest is None:
+        return
+    elapsed = (utcnow() - latest.created_at).total_seconds()
+    if elapsed < CODE_RESEND_INTERVAL_SECONDS:
+        remaining = int(CODE_RESEND_INTERVAL_SECONDS - elapsed) + 1
+        raise HTTPException(status_code=429, detail=f"发送过于频繁，请 {remaining} 秒后再试")
+    await db.execute(delete(model).where(model.email == email, model.used == False))
 
 
 async def _get_smtp_config(db: DbSession) -> tuple[str, int, str, str]:
@@ -73,15 +97,7 @@ async def send_email_verification_code(
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail="该邮箱已被注册")
 
-    result = await db.execute(
-        select(EmailVerificationCode).where(
-            EmailVerificationCode.email == email,
-            EmailVerificationCode.used == False,
-            EmailVerificationCode.expires_at > utcnow(),
-        )
-    )
-    if result.scalars().first():
-        raise HTTPException(status_code=429, detail="验证码已发送，请查看邮箱或稍后再试")
+    await _enforce_resend_interval(db, EmailVerificationCode, email)
 
     smtp_host, smtp_port, smtp_user, smtp_pass = await _get_smtp_config(db)
 
@@ -89,7 +105,7 @@ async def send_email_verification_code(
     verification_code = EmailVerificationCode(
         email=email,
         code=code,
-        expires_at=utcnow() + timedelta(minutes=1),
+        expires_at=utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES),
     )
     db.add(verification_code)
     await db.commit()
@@ -254,6 +270,8 @@ async def request_reset(
     if not user:
         return {"message": "如果该邮箱已注册并验证，验证码将稍后发送"}
 
+    await _enforce_resend_interval(db, ResetCode, email)
+
     smtp_host_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_host"))).scalar_one_or_none()
     smtp_port_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_port"))).scalar_one_or_none()
     smtp_user_row = (await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_user"))).scalar_one_or_none()
@@ -267,7 +285,7 @@ async def request_reset(
         user_id=user.id,
         email=email,
         code=code,
-        expires_at=utcnow() + timedelta(minutes=1),
+        expires_at=utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES),
     )
     db.add(reset_code)
     await db.commit()

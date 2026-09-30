@@ -242,3 +242,98 @@ class TestDataIsolation:
             "password": "password123",
         })
         assert resp.status_code == 401
+
+
+class TestSendVerificationCode:
+    """邮箱验证码：60 秒重发节流 + 10 分钟有效期。"""
+
+    @pytest.fixture()
+    async def smtp_settings(self, db_session):
+        from app.core.crypto import encrypt_value
+        from app.models.system_setting import SystemSetting
+
+        db_session.add_all([
+            SystemSetting(key="smtp_host", value="smtp.test"),
+            SystemSetting(key="smtp_port", value="465"),
+            SystemSetting(key="smtp_user", value="noreply@test"),
+            SystemSetting(key="smtp_password_enc", value=encrypt_value("secret")),
+        ])
+        await db_session.commit()
+
+    @pytest.fixture()
+    def _patch_email_sender(self, monkeypatch):
+        monkeypatch.setattr("app.api.auth.send_verification_email", lambda *a, **k: None)
+        monkeypatch.setattr("app.api.account.send_verification_email", lambda *a, **k: None)
+
+    async def test_resend_within_interval_rejected(self, client, db_session, smtp_settings, _patch_email_sender):
+        resp = client.post("/api/auth/send-verification-code", json={"email": "fresh@test.com"})
+        assert resp.status_code == 200
+
+        resp = client.post("/api/auth/send-verification-code", json={"email": "fresh@test.com"})
+        assert resp.status_code == 429
+        assert "秒" in resp.json()["detail"]
+
+    async def test_resend_after_interval_replaces_old_code(
+        self, client, db_session, smtp_settings, _patch_email_sender, monkeypatch,
+    ):
+        fake_now = [utcnow()]
+        monkeypatch.setattr("app.api.auth.utcnow", lambda: fake_now[0])
+
+        resp = client.post("/api/auth/send-verification-code", json={"email": "again@test.com"})
+        assert resp.status_code == 200
+
+        fake_now[0] += timedelta(seconds=61)
+        resp = client.post("/api/auth/send-verification-code", json={"email": "again@test.com"})
+        assert resp.status_code == 200
+
+        async with TestAsyncSession() as session:
+            result = await session.execute(
+                select(EmailVerificationCode).where(EmailVerificationCode.email == "again@test.com")
+            )
+            codes = result.scalars().all()
+        assert len(codes) == 1
+        assert codes[0].used == False
+
+    async def test_account_send_code_shares_throttle(self, client, db_session, smtp_settings, _patch_email_sender):
+        resp = client.post("/api/account/security-emails/send-code", json={"email": "bind@test.com"})
+        assert resp.status_code == 200
+
+        resp = client.post("/api/account/security-emails/send-code", json={"email": "bind@test.com"})
+        assert resp.status_code == 429
+
+    async def test_code_valid_within_10_minutes(self, client, smtp_settings, _patch_email_sender, monkeypatch):
+        monkeypatch.setattr("app.api.auth._generate_code", lambda: "654321")
+        fake_now = [utcnow()]
+        monkeypatch.setattr("app.api.auth.utcnow", lambda: fake_now[0])
+
+        resp = client.post("/api/auth/send-verification-code", json={"email": "slow@test.com"})
+        assert resp.status_code == 200
+
+        # 9 分钟后注册仍可用（有效期 10 分钟）
+        fake_now[0] += timedelta(minutes=9)
+        resp = client.post("/api/auth/register", json={
+            "username": "slowuser",
+            "password": "password123",
+            "security_email_1": "slow@test.com",
+            "security_email_1_code": "654321",
+        })
+        assert resp.status_code == 200
+
+    async def test_code_expires_after_10_minutes(self, client, smtp_settings, _patch_email_sender, monkeypatch):
+        monkeypatch.setattr("app.api.auth._generate_code", lambda: "654321")
+        fake_now = [utcnow()]
+        monkeypatch.setattr("app.api.auth.utcnow", lambda: fake_now[0])
+
+        resp = client.post("/api/auth/send-verification-code", json={"email": "late@test.com"})
+        assert resp.status_code == 200
+
+        # 11 分钟后验证码应已过期
+        fake_now[0] += timedelta(minutes=11)
+        resp = client.post("/api/auth/register", json={
+            "username": "lateuser",
+            "password": "password123",
+            "security_email_1": "late@test.com",
+            "security_email_1_code": "654321",
+        })
+        assert resp.status_code == 400
+        assert "无效或已过期" in resp.json()["detail"]
