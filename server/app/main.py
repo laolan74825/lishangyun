@@ -7,12 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
-from app.config import settings
+from app.config import settings, validate_security_settings
 from app.database import Base, engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_security_settings()
+
     # Import all models to register them with Base.metadata
     from app.models import (  # noqa: F401
         authorization_action_log,

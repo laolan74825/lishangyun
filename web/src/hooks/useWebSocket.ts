@@ -4,8 +4,9 @@ import { useAppStore } from '../store/appStore'
 import type { GbRecord } from '../types'
 
 interface WebSocketMessage {
-  type: 'new_record' | 'update_record' | 'delete_record' | 'sync_complete' | 'error'
+  type: 'new_record' | 'record_updated' | 'record_deleted' | 'sync_complete' | 'error'
   data?: GbRecord | Record<string, unknown>
+  record_id?: number
   message?: string
 }
 
@@ -14,6 +15,8 @@ export function useGuestbookWebSocket(guestbookId: number | undefined) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const isMountedRef = useRef(true)
   const prependGbRecord = useAppStore((s) => s.prependGbRecord)
+  const updateGbRecord = useAppStore((s) => s.updateGbRecord)
+  const removeGbRecord = useAppStore((s) => s.removeGbRecord)
   const setSyncStatus = useAppStore((s) => s.setSyncStatus)
 
   const connect = useCallback(() => {
@@ -45,6 +48,16 @@ export function useGuestbookWebSocket(guestbookId: number | undefined) {
               prependGbRecord(msg.data as GbRecord)
             }
             break
+          case 'record_updated':
+            if (msg.data) {
+              updateGbRecord(msg.data as GbRecord)
+            }
+            break
+          case 'record_deleted':
+            if (msg.record_id != null) {
+              removeGbRecord(msg.record_id)
+            }
+            break
           case 'sync_complete':
             setSyncStatus('synced')
             break
@@ -72,7 +85,7 @@ export function useGuestbookWebSocket(guestbookId: number | undefined) {
     ws.onerror = () => {}
 
     wsRef.current = ws
-  }, [guestbookId, prependGbRecord, setSyncStatus])
+  }, [guestbookId, prependGbRecord, updateGbRecord, removeGbRecord, setSyncStatus])
 
   useEffect(() => {
     isMountedRef.current = true

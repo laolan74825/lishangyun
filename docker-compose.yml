@@ -26,6 +26,8 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}
+      # 生产部署未配置真实密钥时，api 将拒绝启动（fail fast）而非带默认值运行
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     depends_on:
       db:
         condition: service_healthy

@@ -29,6 +29,8 @@ interface AppState {
   setGbRecords: (records: GbRecord[]) => void
   appendGbRecord: (record: GbRecord) => void
   prependGbRecord: (record: GbRecord) => void
+  updateGbRecord: (record: GbRecord) => void
+  removeGbRecord: (id: number) => void
 
   lastRecords: GbRecord[]
   setLastRecords: (records: GbRecord[]) => void
@@ -79,6 +81,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ gbRecords: [...state.gbRecords, record] })),
   prependGbRecord: (record) =>
     set((state) => ({ gbRecords: [record, ...state.gbRecords] })),
+  updateGbRecord: (record) =>
+    set((state) => ({
+      gbRecords: state.gbRecords.map((r) => (r.id === record.id ? record : r)),
+    })),
+  removeGbRecord: (id) =>
+    set((state) => ({ gbRecords: state.gbRecords.filter((r) => r.id !== id) })),
 
   lastRecords: [],
   setLastRecords: (lastRecords) => set({ lastRecords }),
