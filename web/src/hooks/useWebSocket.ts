@@ -57,9 +57,11 @@ export function useGuestbookWebSocket(guestbookId: number | undefined) {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!isMountedRef.current) return
       setSyncStatus('offline')
+      // 4001=认证失败 4003=无权访问：重连无意义，不再重试
+      if (event.code === 4001 || event.code === 4003) return
       reconnectTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) {
           connect()
