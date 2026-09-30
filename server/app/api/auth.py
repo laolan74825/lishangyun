@@ -1,6 +1,10 @@
+import logging
+import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import func, select
 
 from app.core.crypto import decrypt_value, encrypt_value
@@ -35,6 +39,11 @@ async def auth_status(db: DbSession):
     return {"needs_init": user_count == 0, "user_count": user_count}
 
 
+def _generate_code() -> str:
+    """生成 6 位数字验证码（密码学安全随机数）。"""
+    return "".join(str(secrets.randbelow(10)) for _ in range(6))
+
+
 async def _get_smtp_config(db: DbSession) -> tuple[str, int, str, str]:
     keys = ("smtp_host", "smtp_port", "smtp_user", "smtp_password_enc")
     rows = {}
@@ -54,6 +63,15 @@ async def send_email_verification_code(
 ):
     email = body.email.strip().lower()
 
+    existing = await db.execute(
+        select(SecurityEmail).where(
+            SecurityEmail.email == email,
+            SecurityEmail.is_verified == True,
+        )
+    )
+    if existing.scalars().first():
+        raise HTTPException(status_code=409, detail="该邮箱已被注册")
+
     result = await db.execute(
         select(EmailVerificationCode).where(
             EmailVerificationCode.email == email,
@@ -61,12 +79,12 @@ async def send_email_verification_code(
             EmailVerificationCode.expires_at > utcnow(),
         )
     )
-    if result.scalar_one_or_none():
+    if result.scalars().first():
         raise HTTPException(status_code=429, detail="验证码已发送，请查看邮箱或稍后再试")
 
     smtp_host, smtp_port, smtp_user, smtp_pass = await _get_smtp_config(db)
 
-    code = "".join(__import__("random").choices("0123456789", k=6))
+    code = _generate_code()
     verification_code = EmailVerificationCode(
         email=email,
         code=code,
@@ -77,8 +95,9 @@ async def send_email_verification_code(
 
     try:
         send_verification_email(email, code, smtp_host, smtp_port, smtp_user, smtp_pass)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"邮件发送失败: {str(e)}")
+    except Exception:
+        logger.exception("发送邮箱验证码失败: email=%s", email)
+        raise HTTPException(status_code=500, detail="邮件发送失败，请稍后再试")
 
     return {"message": "验证码已发送"}
 
@@ -92,7 +111,7 @@ async def _verify_email_code(db: DbSession, email: str, code: str) -> None:
             EmailVerificationCode.expires_at > utcnow(),
         )
     )
-    verification_code = result.scalar_one_or_none()
+    verification_code = result.scalars().first()
     if not verification_code:
         raise HTTPException(status_code=400, detail="邮箱验证码无效或已过期")
     verification_code.used = True
@@ -114,6 +133,16 @@ async def register(body: RegisterRequest, db: DbSession):
             raise HTTPException(status_code=400, detail="备用安全邮箱需要提供验证码")
         await _verify_email_code(db, body.security_email_2, body.security_email_2_code)
 
+    email_1 = body.security_email_1.strip().lower()
+    existing_email = await db.execute(
+        select(SecurityEmail).where(
+            SecurityEmail.email == email_1,
+            SecurityEmail.is_verified == True,
+        )
+    )
+    if existing_email.scalars().first():
+        raise HTTPException(status_code=409, detail="该邮箱已被注册，请使用其他邮箱或登录已有账户")
+
     result = await db.execute(select(User).where(User.is_deleted == False))
     existing_users = result.scalars().all()
     role = "super_admin" if len(existing_users) == 0 else "user"
@@ -130,16 +159,17 @@ async def register(body: RegisterRequest, db: DbSession):
 
     security_email_1 = SecurityEmail(
         user_id=user.id,
-        email=body.security_email_1,
+        email=email_1,
         is_primary=True,
         is_verified=True,
     )
     db.add(security_email_1)
 
     if body.security_email_2:
+        email_2 = body.security_email_2.strip().lower()
         security_email_2 = SecurityEmail(
             user_id=user.id,
-            email=body.security_email_2,
+            email=email_2,
             is_primary=False,
             is_verified=True,
         )
@@ -195,13 +225,14 @@ async def request_reset(
     bg: BackgroundTasks,
     db: DbSession,
 ):
+    email = body.email.strip().lower()
     result = await db.execute(
         select(SecurityEmail).where(
-            SecurityEmail.email == body.email,
+            SecurityEmail.email == email,
             SecurityEmail.is_verified == True,
         )
     )
-    security_email = result.scalar_one_or_none()
+    security_email = result.scalars().first()
     if not security_email:
         return {"message": "如果该邮箱已注册并验证，验证码将稍后发送"}
 
@@ -220,10 +251,10 @@ async def request_reset(
     if not all([smtp_host_row, smtp_port_row, smtp_user_row, smtp_pass_row]):
         raise HTTPException(status_code=400, detail="邮件服务未配置，请联系管理员")
 
-    code = "".join(__import__("random").choices("0123456789", k=6))
+    code = _generate_code()
     reset_code = ResetCode(
         user_id=user.id,
-        email=body.email,
+        email=email,
         code=code,
         expires_at=utcnow() + timedelta(minutes=1),
     )
@@ -232,7 +263,7 @@ async def request_reset(
 
     bg.add_task(
         send_reset_email,
-        body.email,
+        email,
         code,
         smtp_host_row.value,
         int(smtp_port_row.value),
@@ -247,25 +278,26 @@ async def confirm_reset(
     body: PasswordResetConfirm,
     db: DbSession,
 ):
+    email = body.email.strip().lower()
     result = await db.execute(
         select(ResetCode).where(
-            ResetCode.email == body.email,
+            ResetCode.email == email,
             ResetCode.code == body.code,
             ResetCode.used == False,
             ResetCode.expires_at > utcnow(),
         )
     )
-    reset_code = result.scalar_one_or_none()
+    reset_code = result.scalars().first()
     if not reset_code:
         raise HTTPException(status_code=400, detail="验证码无效或已过期")
 
     result = await db.execute(
         select(SecurityEmail).where(
-            SecurityEmail.email == body.email,
+            SecurityEmail.email == email,
             SecurityEmail.is_verified == True,
         )
     )
-    security_email = result.scalar_one_or_none()
+    security_email = result.scalars().first()
     if not security_email:
         raise HTTPException(status_code=400, detail="该邮箱未验证或不存在")
 
@@ -280,3 +312,28 @@ async def confirm_reset(
     reset_code.used = True
     await db.commit()
     return {"message": "密码已重置"}
+
+
+@router.get("/users/search")
+async def search_users(
+    current_user: CurrentUser,
+    db: DbSession,
+    q: str = "",
+):
+    if len(q) < 2:
+        return []
+    pattern = f"%{q}%"
+    stmt = (
+        select(User.id, User.username, User.nickname)
+        .where(
+            User.id != current_user.id,
+            User.is_deleted == False,
+            User.status == "active",
+        )
+        .where(
+            (User.username.ilike(pattern)) | (User.nickname.ilike(pattern))
+        )
+        .limit(10)
+    )
+    result = await db.execute(stmt)
+    return [{"id": r.id, "username": r.username, "nickname": r.nickname} for r in result]

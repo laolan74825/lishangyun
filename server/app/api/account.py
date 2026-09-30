@@ -1,7 +1,10 @@
+import logging
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 
 from app.core.dependencies import CurrentUser, DbSession
 from app.core.email_service import send_verification_email
@@ -76,18 +79,19 @@ async def send_email_code(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=429, detail="验证码已发送，请查看邮箱或稍后再试")
 
-    from app.api.auth import _get_smtp_config
+    from app.api.auth import _generate_code, _get_smtp_config
     smtp_host, smtp_port, smtp_user, smtp_pass = await _get_smtp_config(db)
 
-    code = "".join(__import__("random").choices("0123456789", k=6))
+    code = _generate_code()
     vc = EmailVerificationCode(email=email, code=code, expires_at=utcnow() + timedelta(minutes=1))
     db.add(vc)
     await db.commit()
 
     try:
         send_verification_email(email, code, smtp_host, smtp_port, smtp_user, smtp_pass)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"邮件发送失败: {str(e)}")
+    except Exception:
+        logger.exception("发送安全邮箱验证码失败: email=%s", email)
+        raise HTTPException(status_code=500, detail="邮件发送失败，请稍后再试")
 
     return {"message": "验证码已发送"}
 

@@ -751,3 +751,52 @@ export function useDeleteAccount() {
 
 // 重新导出账户相关类型，供页面组件使用
 export type { ProfileResponse, SecurityEmailItem }
+
+/* ========================= 授权码（Authorization Codes）查询 Hooks ========================= */
+
+/** 查询指定礼簿的授权码列表 */
+export function useAuthorizationCodes(guestbookId?: number) {
+  return useQuery({
+    queryKey: queryKeys.authorization.codes(guestbookId),
+    queryFn: () => api.listAuthorizationCodes(guestbookId ? { guestbook_id: guestbookId } : undefined),
+    enabled: guestbookId !== undefined,
+  })
+}
+
+/** 创建授权码（协助邀请） */
+export function useCreateAuthorizationCode() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: {
+      guestbook_id: number
+      grantee_name: string
+      grantee_account_id: number
+      permissions?: 'record' | 'reconcile' | 'both'
+      expires_at: string
+    }) => api.createAuthorizationCode(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.authorization.all })
+    },
+  })
+}
+
+/** 撤销授权码 */
+export function useRevokeAuthorizationCode() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (codeId: number) => api.revokeAuthorizationCode(codeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.authorization.all })
+    },
+  })
+}
+
+/** 搜索用户（用于协助邀请选择被邀请人） */
+export function useSearchUsers(keyword: string) {
+  return useQuery({
+    queryKey: ['users', 'search', keyword],
+    queryFn: () => api.searchUsers(keyword),
+    enabled: keyword.length >= 2,
+    staleTime: 30_000,
+  })
+}

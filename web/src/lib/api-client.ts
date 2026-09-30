@@ -982,6 +982,19 @@ export async function uploadFamilyKey(data: {
   return api.post('/security/upload-family-key', data)
 }
 
+/* ========================= 用户搜索 ========================= */
+
+export interface UserSearchResult {
+  id: number
+  username: string
+  nickname: string | null
+}
+
+export async function searchUsers(q: string): Promise<UserSearchResult[]> {
+  if (q.length < 2) return []
+  return api.get<UserSearchResult[]>(`/auth/users/search?q=${encodeURIComponent(q)}`)
+}
+
 /* ========================= 修改密码 ========================= */
 
 export async function changePassword(data: {

@@ -25,9 +25,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (res.status === 401) {
-    clearToken()
-    window.location.href = '/login'
-    throw new ApiError(401, '未授权')
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail || body.message || detail
+    } catch { /* ignore */ }
+    if (!path.includes('/auth/login')) {
+      clearToken()
+      window.location.href = '/login'
+    }
+    throw new ApiError(401, detail)
   }
 
   if (!res.ok) {

@@ -79,4 +79,9 @@ export const queryKeys = {
     profile: () => [...queryKeys.account.all, 'profile'] as const,
     securityEmails: () => [...queryKeys.account.all, 'securityEmails'] as const,
   },
+  authorization: {
+    all: ['authorization'] as const,
+    codes: (guestbookId?: number) =>
+      [...queryKeys.authorization.all, 'codes', guestbookId ?? 'all'] as const,
+  },
 }

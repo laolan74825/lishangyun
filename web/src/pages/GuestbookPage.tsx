@@ -4,6 +4,7 @@ import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import Modal from '../components/Modal'
 import GuestbookStatusBadge from '../components/guestbook/GuestbookStatusBadge'
 import { cacheGuestbooks } from '../lib/dexie'
 import { useAppStore } from '../store/appStore'
@@ -14,7 +15,223 @@ import {
   useDeleteGuestbook,
   usePaymentAccounts,
   useSaveTerminalSettings,
+  useAuthorizationCodes,
+  useCreateAuthorizationCode,
+  useRevokeAuthorizationCode,
+  useSearchUsers,
 } from '../hooks/useQueries'
+
+/* ========================= 协助邀请弹窗 ========================= */
+
+const permissionLabels: Record<string, string> = {
+  record: '记账',
+  reconcile: '对账',
+  both: '记账 + 对账',
+}
+
+function InviteModal({ guestbookId, onClose }: { guestbookId: number; onClose: () => void }) {
+  const { toast, showToast } = useToast()
+  const { data: codes = [], refetch } = useAuthorizationCodes(guestbookId)
+  const createMutation = useCreateAuthorizationCode()
+  const revokeMutation = useRevokeAuthorizationCode()
+
+  const [searchInput, setSearchInput] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [selectedUser, setSelectedUser] = useState<{ id: number; username: string; nickname: string | null } | null>(null)
+  const [permissions, setPermissions] = useState<'record' | 'reconcile' | 'both'>('record')
+  const [expiresDays, setExpiresDays] = useState(7)
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null)
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false)
+
+  const { data: searchResults = [] } = useSearchUsers(debouncedQuery)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchInput), 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  useEffect(() => {
+    refetch()
+  }, [guestbookId, refetch])
+
+  const activeCodes = codes.filter((c) => c.status === 'active' || c.status === 'bound')
+
+  function handleSelectUser(user: { id: number; username: string; nickname: string | null }) {
+    setSelectedUser(user)
+    setSearchInput(user.nickname || user.username)
+    setShowSearchDropdown(false)
+  }
+
+  async function handleCreate() {
+    if (!selectedUser) {
+      showToast('请先选择被邀请人')
+      return
+    }
+    const expiresAt = dayjs().add(expiresDays, 'day').toISOString()
+    try {
+      const res = await createMutation.mutateAsync({
+        guestbook_id: guestbookId,
+        grantee_name: selectedUser.nickname || selectedUser.username,
+        grantee_account_id: selectedUser.id,
+        permissions,
+        expires_at: expiresAt,
+      })
+      setGeneratedCode(res.code)
+      refetch()
+      showToast('邀请已生成')
+    } catch (e) {
+      showToast('生成失败：' + (e instanceof Error ? e.message : '未知错误'))
+    }
+  }
+
+  function handleRevoke(codeId: number) {
+    revokeMutation.mutate(codeId, {
+      onSuccess: () => {
+        showToast('邀请已撤销')
+        refetch()
+      },
+      onError: (e) => showToast('撤销失败：' + e.message),
+    })
+  }
+
+  function handleCopyCode() {
+    if (!generatedCode) return
+    navigator.clipboard.writeText(generatedCode).then(() => {
+      showToast('授权码已复制')
+    }).catch(() => {
+      showToast('复制失败，请手动复制')
+    })
+  }
+
+  return (
+    <Modal open={true} onClose={onClose} title="协助邀请" maxWidth="md">
+      {generatedCode ? (
+        <div className="flex flex-col items-center gap-4 py-4">
+          <p className="text-sm text-ink-secondary">邀请码已生成，请分享给被邀请人</p>
+          <div className="flex items-center gap-3 rounded-lg bg-gray-50 px-6 py-4">
+            <span className="font-mono text-2xl font-bold tracking-wider text-primary">{generatedCode}</span>
+            <button onClick={handleCopyCode} className="rounded-btn border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10">
+              复制
+            </button>
+          </div>
+          <p className="text-xs text-ink-secondary">被邀请人在授权码页面输入此码即可协助记账</p>
+          <button onClick={onClose} className="mt-2 rounded-btn bg-primary px-6 py-2.5 text-sm font-semibold text-white">
+            完成
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {/* 已有邀请列表 */}
+          {activeCodes.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-ink">当前邀请</p>
+              {activeCodes.map((c) => (
+                <div key={c.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                  <div className="text-sm">
+                    <span className="font-medium text-ink">{c.grantee_name}</span>
+                    <span className="ml-2 text-xs text-ink-secondary">{permissionLabels[c.permissions] || c.permissions}</span>
+                    <span className="ml-2 text-xs text-ink-secondary">
+                      {c.status === 'bound' ? '已接受' : '待接受'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleRevoke(c.id!)}
+                    disabled={revokeMutation.isPending}
+                    className="text-xs text-danger hover:underline disabled:opacity-50"
+                  >
+                    撤销
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 新建邀请表单 */}
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-medium text-ink">新建邀请</p>
+
+            {/* 用户搜索 */}
+            <div className="relative">
+              <input
+                value={searchInput}
+                onChange={(e) => {
+                  setSearchInput(e.target.value)
+                  setSelectedUser(null)
+                  setShowSearchDropdown(true)
+                }}
+                onFocus={() => setShowSearchDropdown(true)}
+                placeholder="输入用户名搜索…"
+                className="h-11 w-full rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
+              />
+              {showSearchDropdown && debouncedQuery.length >= 2 && searchResults.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full rounded-lg border border-line bg-card shadow-lg">
+                  {searchResults.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => handleSelectUser(u)}
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50"
+                    >
+                      <span className="font-medium text-ink">{u.nickname || u.username}</span>
+                      {u.nickname && <span className="text-xs text-ink-secondary">@{u.username}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 权限选择 */}
+            <div className="flex gap-2">
+              {(['record', 'reconcile', 'both'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPermissions(p)}
+                  className={`flex-1 rounded-btn border py-2 text-sm font-medium transition-colors ${
+                    permissions === p
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-line text-ink-secondary hover:border-primary'
+                  }`}
+                >
+                  {permissionLabels[p]}
+                </button>
+              ))}
+            </div>
+
+            {/* 有效期 */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-ink-secondary">有效期</span>
+              <div className="flex gap-2">
+                {[1, 3, 7, 30].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setExpiresDays(d)}
+                    className={`rounded-btn border px-3 py-1.5 text-sm transition-colors ${
+                      expiresDays === d
+                        ? 'border-primary bg-primary/10 font-medium text-primary'
+                        : 'border-line text-ink-secondary hover:border-primary'
+                    }`}
+                  >
+                    {d}天
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 提交按钮 */}
+            <button
+              onClick={handleCreate}
+              disabled={!selectedUser || createMutation.isPending}
+              className="mt-2 rounded-btn bg-primary py-3 text-sm font-bold text-white disabled:bg-disabled"
+            >
+              {createMutation.isPending ? '生成中…' : '生成邀请码'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Toast message={toast} onClose={() => showToast(null)} />
+    </Modal>
+  )
+}
 
 /* ========================= 礼簿列表页 ========================= */
 
@@ -27,6 +244,7 @@ export function GuestbookListPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null)
+  const [inviteGuestbookId, setInviteGuestbookId] = useState<number | null>(null)
 
   const active = useMemo(() => guestbooks.filter((g) => g.status === 'active'), [guestbooks])
   const archived = useMemo(
@@ -167,6 +385,14 @@ export function GuestbookListPage() {
               进入收礼
             </Link>
           )}
+          {gb.status === 'active' && (
+            <button
+              onClick={() => gb.id && setInviteGuestbookId(gb.id)}
+              className="rounded-btn border border-info px-4 py-2.5 text-sm font-medium text-info hover:bg-info/10"
+            >
+              协助邀请
+            </button>
+          )}
           <button
             onClick={() => navigate({ to: '/guestbooks/$id', params: { id: String(gb.id) } })}
             className="rounded-btn border border-line px-4 py-2.5 text-sm font-medium text-ink-secondary hover:border-primary"
@@ -304,6 +530,13 @@ export function GuestbookListPage() {
         onConfirm={() => setBulkDeleteError(null)}
         onCancel={() => setBulkDeleteError(null)}
       />
+
+      {inviteGuestbookId !== null && (
+        <InviteModal
+          guestbookId={inviteGuestbookId}
+          onClose={() => setInviteGuestbookId(null)}
+        />
+      )}
 
       <Toast message={toast} onClose={() => showToast(null)} />
     </PageScaffold>
