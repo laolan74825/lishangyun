@@ -8,7 +8,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import (
     authorization_action_log,
-    authorization_code,
+    collaboration_invite,
     daily_record,
     family_group,
     family_member,

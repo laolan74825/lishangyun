@@ -1,15 +1,20 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
+import ConfirmDialog from '../components/ConfirmDialog'
+import Toast, { useToast } from '../components/Toast'
 import GuestbookStatusBadge from '../components/guestbook/GuestbookStatusBadge'
-import type { Guestbook } from '../types'
+import type { CollaborationInvitePending, Guestbook } from '../types'
 import {
   useGuestbooks,
   useDailyRecords,
   useDailyRecordsSummary,
   useGuestbookSummary,
   useRecentGbRecords,
+  usePendingInvites,
+  useAcceptCollaborationInvite,
+  useRejectCollaborationInvite,
 } from '../hooks/useQueries'
 
 const thisMonthStart = dayjs().startOf('month').format('YYYY-MM-DD')
@@ -100,6 +105,144 @@ function RecentGuestbookRecords({ gb }: { gb: Guestbook }) {
   )
 }
 
+const invitePermissionLabels: Record<string, string> = {
+  record: '仅记账',
+  reconcile: '仅对账',
+  both: '记账 + 对账',
+}
+
+/** 首页顶部待处理协作邀请（邀请信号，10 分钟有效，30s 轮询） */
+function PendingInvitesBanner() {
+  const { data: invites = [] } = usePendingInvites()
+  const acceptMutation = useAcceptCollaborationInvite()
+  const rejectMutation = useRejectCollaborationInvite()
+  const { toast, showToast } = useToast()
+  const [codeById, setCodeById] = useState<Record<number, string>>({})
+  const [acceptingId, setAcceptingId] = useState<number | null>(null)
+  const [rejectTarget, setRejectTarget] = useState<CollaborationInvitePending | null>(null)
+  const [now, setNow] = useState(() => dayjs())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  if (invites.length === 0) return null
+
+  function handleAccept(invite: CollaborationInvitePending) {
+    const code = (codeById[invite.id] || '').trim()
+    if (!/^\d{6}$/.test(code)) {
+      showToast('请输入 6 位数字邀请码')
+      return
+    }
+    acceptMutation.mutate(
+      { inviteId: invite.id, inviteCode: code },
+      {
+        onSuccess: (data) => {
+          showToast(
+            `已接受协作邀请，协作时段 ${dayjs(data.collaboration_start_at).format('MM-DD HH:mm')} ～ ${dayjs(data.collaboration_end_at).format('MM-DD HH:mm')}`,
+          )
+          setAcceptingId(null)
+        },
+        onError: (e) => showToast('接受失败：' + e.message),
+      },
+    )
+  }
+
+  function handleReject() {
+    if (!rejectTarget) return
+    rejectMutation.mutate(rejectTarget.id, {
+      onSuccess: () => {
+        showToast('已拒绝该协作邀请')
+        setRejectTarget(null)
+      },
+      onError: (e) => showToast('操作失败：' + e.message),
+    })
+  }
+
+  return (
+    <section className="flex flex-col gap-3">
+      {invites.map((invite) => {
+        const remainSec = Math.max(0, dayjs(invite.signal_expires_at).diff(now, 'second'))
+        const remainLabel =
+          remainSec < 60 ? `${remainSec} 秒后消失` : `${Math.floor(remainSec / 60)} 分钟后消失`
+        return (
+          <div
+            key={invite.id}
+            className="rounded-card border border-info/40 bg-info/5 p-4 shadow-card"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-ink">
+                {invite.inviter_username} 邀请你协助管理「{invite.guestbook_name}」礼簿
+              </p>
+              <span className="text-xs text-info">邀请信号 {remainLabel}</span>
+            </div>
+            <p className="mt-1 text-xs text-ink-secondary">
+              权限：{invitePermissionLabels[invite.permissions] || invite.permissions} ·
+              接受后需输入邀请人告知的 6 位邀请码
+            </p>
+
+            {acceptingId === invite.id ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <input
+                  value={codeById[invite.id] || ''}
+                  onChange={(e) =>
+                    setCodeById((prev) => ({ ...prev, [invite.id]: e.target.value.replace(/\D/g, '').slice(0, 6) }))
+                  }
+                  placeholder="输入 6 位邀请码"
+                  inputMode="numeric"
+                  className="h-10 w-40 rounded-btn border border-line bg-card px-3 text-center font-mono text-base tracking-widest outline-none focus:border-2 focus:border-primary"
+                />
+                <button
+                  onClick={() => handleAccept(invite)}
+                  disabled={acceptMutation.isPending}
+                  className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {acceptMutation.isPending ? '确认中…' : '确认接受'}
+                </button>
+                <button
+                  onClick={() => setAcceptingId(null)}
+                  className="rounded-btn border border-line px-4 py-2.5 text-sm text-ink-secondary"
+                >
+                  返回
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => setAcceptingId(invite.id)}
+                  className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  接受邀请
+                </button>
+                <button
+                  onClick={() => setRejectTarget(invite)}
+                  className="rounded-btn border border-line px-4 py-2.5 text-sm text-ink-secondary hover:border-danger hover:text-danger"
+                >
+                  拒绝
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <ConfirmDialog
+        open={rejectTarget !== null}
+        title="拒绝协作邀请"
+        message="确定拒绝此协作邀请？"
+        variant="warning"
+        confirmLabel="拒绝"
+        onConfirm={handleReject}
+        onCancel={() => setRejectTarget(null)}
+        loading={rejectMutation.isPending}
+      />
+
+      <Toast message={toast} onClose={() => showToast(null)} />
+    </section>
+  )
+}
+
 /** 首页 / 礼簿总览仪表板（需求 §6 首页） */
 export default function DashboardPage() {
   const monthlyFilters = useMemo(() => ({ startDate: thisMonthStart, endDate: thisMonthEnd }), [])
@@ -133,7 +276,9 @@ export default function DashboardPage() {
 
   return (
     <PageScaffold title="欢迎回来" description="您的礼金往来总览">
-      {loading ? (
+      <div className="flex flex-col gap-5">
+        <PendingInvitesBanner />
+        {loading ? (
         <p className="py-10 text-center text-ink-secondary">加载中…</p>
       ) : (
         <div className="flex flex-col gap-5">
@@ -303,7 +448,8 @@ export default function DashboardPage() {
           {/* ===== 最近礼簿收礼（如果有进行中的礼簿） ===== */}
           {firstActiveGb && <RecentGuestbookRecords gb={firstActiveGb} />}
         </div>
-      )}
+          )}
+      </div>
     </PageScaffold>
   )
 }

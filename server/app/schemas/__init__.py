@@ -28,7 +28,11 @@ from app.schemas.family_group import FamilyGroupCreate, FamilyGroupUpdate, Famil
 from app.schemas.family_member import FamilyMemberResponse, UpdateMemberRoleRequest
 from app.schemas.pending_approval import PendingApprovalResponse, ApprovalSubmitRequest, ApprovalActionRequest
 from app.schemas.notification import NotificationResponse, NotificationCountResponse
-from app.schemas.authorization_code import AuthorizationCodeCreate, AuthorizationCodeBindRequest, AuthorizationCodeResponse
+from app.schemas.collaboration_invite import (
+    CollaborationInviteAcceptRequest, CollaborationInviteAcceptedResponse,
+    CollaborationInviteCreate, CollaborationInvitePendingResponse,
+    CollaborationInviteResponse, UserSearchResult, AuthorizationActionLogResponse,
+)
 from app.schemas.person_balance_adjustment import PersonBalanceAdjustmentCreate, PersonBalanceAdjustmentResponse
 from app.schemas.user_key_config import UserKeyConfigResponse, SecurityConfigResponse, EnhancedModeEnableRequest, MnemonicVerifyRequest
 from app.schemas.stats import (
@@ -59,7 +63,9 @@ __all__ = [
     "FamilyMemberResponse", "UpdateMemberRoleRequest",
     "PendingApprovalResponse", "ApprovalSubmitRequest", "ApprovalActionRequest",
     "NotificationResponse", "NotificationCountResponse",
-    "AuthorizationCodeCreate", "AuthorizationCodeBindRequest", "AuthorizationCodeResponse",
+    "CollaborationInviteAcceptRequest", "CollaborationInviteAcceptedResponse",
+    "CollaborationInviteCreate", "CollaborationInvitePendingResponse",
+    "CollaborationInviteResponse", "UserSearchResult", "AuthorizationActionLogResponse",
     "PersonBalanceAdjustmentCreate", "PersonBalanceAdjustmentResponse",
     "UserKeyConfigResponse", "SecurityConfigResponse", "EnhancedModeEnableRequest", "MnemonicVerifyRequest",
     "PersonRankingItem", "TransactionSummaryByName",

@@ -1,6 +1,7 @@
 fastapi>=0.141
 uvicorn[standard]>=0.53
-sqlalchemy>=2.0
+sqlalchemy[asyncio]>=2.0
+greenlet>=3.0
 alembic>=1.15
 pydantic-settings>=2.0
 psycopg2-binary>=2.9

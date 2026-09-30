@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     # Import all models to register them with Base.metadata
     from app.models import (  # noqa: F401
         authorization_action_log,
-        authorization_code,
+        collaboration_invite,
         daily_record,
         family_group,
         family_member,

@@ -31,4 +31,4 @@ class Guestbook(Base):
     terminal_settings: Mapped[list["TerminalSettings"]] = relationship(back_populates="guestbook")
     operation_logs: Mapped[list["OperationLog"]] = relationship(back_populates="guestbook")
     guestbook_hosts: Mapped[list["GuestbookHost"]] = relationship(back_populates="guestbook")
-    authorization_codes: Mapped[list["AuthorizationCode"]] = relationship(back_populates="guestbook")
+    collaboration_invites: Mapped[list["CollaborationInvite"]] = relationship(back_populates="guestbook")

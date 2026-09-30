@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.api.account import router as account_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
-from app.api.authorization import router as authorization_router
+from app.api.collaboration import router as collaboration_router
 from app.api.approvals import router as approvals_router
 from app.api.balance_adjustments import router as balance_adjustments_router
 from app.api.daily_records import router as daily_records_router
@@ -43,7 +43,7 @@ api_router.include_router(export_router)
 api_router.include_router(import_router)
 api_router.include_router(sync_router)
 api_router.include_router(family_router)
-api_router.include_router(authorization_router)
+api_router.include_router(collaboration_router)
 api_router.include_router(approvals_router)
 api_router.include_router(notifications_router)
 api_router.include_router(security_router)

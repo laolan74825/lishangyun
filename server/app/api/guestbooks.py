@@ -6,10 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
+from app.core.guestbook_access import get_guestbook_access
 from app.core.helpers import paginate_query, write_audit_log
-from app.models.authorization_code import AuthorizationCode
-from app.models.family_group import FamilyGroup
-from app.models.family_member import FamilyMember
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
 from app.models.user import User
@@ -76,16 +74,9 @@ async def list_summaries(current_user: CurrentUser, db: DbSession):
 
 @router.get("/{guestbook_id}", response_model=GuestbookResponse)
 async def get_guestbook(guestbook_id: int, current_user: CurrentUser, db: DbSession):
-    result = await db.execute(
-        select(Guestbook).where(
-            Guestbook.id == guestbook_id, Guestbook.owner_id == current_user.id,
-            Guestbook.is_deleted == False
-        )
-    )
-    gb = result.scalar_one_or_none()
-    if not gb:
-        raise HTTPException(status_code=404, detail="礼簿不存在")
-    return gb
+    access = await get_guestbook_access(db, current_user, guestbook_id)
+    access.require("reconcile", "both")
+    return access.guestbook
 
 
 @router.post("/", response_model=dict)
@@ -209,15 +200,9 @@ async def archive_guestbook(
 
 @router.get("/{guestbook_id}/summary")
 async def guestbook_summary(guestbook_id: int, current_user: CurrentUser, db: DbSession):
-    result = await db.execute(
-        select(Guestbook).where(
-            Guestbook.id == guestbook_id, Guestbook.owner_id == current_user.id,
-            Guestbook.is_deleted == False
-        )
-    )
-    gb = result.scalar_one_or_none()
-    if not gb:
-        raise HTTPException(status_code=404, detail="礼簿不存在")
+    access = await get_guestbook_access(db, current_user, guestbook_id)
+    access.require("reconcile", "both")
+    gb = access.guestbook
 
     total_records = (await db.execute(
         select(func.count(GbRecord.id))
@@ -247,48 +232,12 @@ async def proxy_create_records(
     db: DbSession,
     current_user: CurrentUser,
 ):
-    result = await db.execute(
-        select(Guestbook).where(Guestbook.id == guestbook_id, Guestbook.is_deleted == False)
-    )
-    gb = result.scalar_one_or_none()
-    if not gb:
-        raise HTTPException(status_code=404, detail="礼簿不存在")
+    access = await get_guestbook_access(db, current_user, guestbook_id)
+    access.require("record", "both")
+    gb = access.guestbook
 
     if gb.status == "archived":
         raise HTTPException(status_code=400, detail="已归档的礼簿不可录入")
-
-    authorized = False
-
-    fam_result = await db.execute(
-        select(FamilyGroup).where(FamilyGroup.owner_id == gb.owner_id)
-    )
-    family_group = fam_result.scalar_one_or_none()
-    if family_group:
-        member_result = await db.execute(
-            select(FamilyMember).where(
-                FamilyMember.family_group_id == family_group.id,
-                FamilyMember.user_id == current_user.id,
-                FamilyMember.status == "active",
-                FamilyMember.is_active == True,
-            )
-        )
-        if member_result.scalar_one_or_none():
-            authorized = True
-
-    if not authorized:
-        auth_result = await db.execute(
-            select(AuthorizationCode).where(
-                AuthorizationCode.guestbook_id == guestbook_id,
-                AuthorizationCode.grantee_user_id == current_user.id,
-                AuthorizationCode.status == "active",
-                AuthorizationCode.expires_at > utcnow(),
-            )
-        )
-        if auth_result.scalar_one_or_none():
-            authorized = True
-
-    if not authorized:
-        raise HTTPException(status_code=403, detail="无权限在该礼簿中录入")
 
     ids = []
     for item in body.records:

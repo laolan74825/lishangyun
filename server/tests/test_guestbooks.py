@@ -174,4 +174,4 @@ class TestDataIsolation:
         gb_id = _create_guestbook(client, admin_headers).json()["id"]
 
         resp = client.get(f"/api/guestbooks/{gb_id}", headers=user_headers)
-        assert resp.status_code == 404
+        assert resp.status_code == 403

@@ -27,7 +27,7 @@ import SecurityPage from './pages/SecurityPage'
 import TerminalSettingsPage from './pages/TerminalSettingsPage'
 import DataImportPage from './pages/DataImportPage'
 import FamilyPage from './pages/FamilyPage'
-import AuthorizationPage from './pages/AuthorizationPage'
+import CollaborationPage from './pages/CollaborationPage'
 import NotificationsPage from './pages/NotificationsPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
@@ -187,10 +187,10 @@ const securityRoute = createRoute({
   component: SecurityPage,
 })
 
-const authzRoute = createRoute({
+const collaborationRoute = createRoute({
   getParentRoute: () => layoutRoute,
-  path: '/authz',
-  component: AuthorizationPage,
+  path: '/collaboration',
+  component: CollaborationPage,
 })
 
 const adminRoute = createRoute({
@@ -269,7 +269,7 @@ const routeTree = rootRoute.addChildren([
     notificationsRoute,
     familyRoute,
     securityRoute,
-    authzRoute,
+    collaborationRoute,
     adminRoute.addChildren([
       adminIndexRoute,
       adminUsersRoute,

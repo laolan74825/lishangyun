@@ -211,8 +211,7 @@ class TestDataIsolation:
         _create_record(client, admin_headers, gb_id)
 
         resp = client.get(f"/api/guestbooks/{gb_id}/records", headers=user_headers)
-        assert resp.status_code == 200
-        assert resp.json()["pagination"]["total_count"] == 0
+        assert resp.status_code == 403
 
     async def test_user_cannot_update_other_record(self, client, admin_headers, user_headers, db_session):
         gb_id = _create_guestbook(client, admin_headers)

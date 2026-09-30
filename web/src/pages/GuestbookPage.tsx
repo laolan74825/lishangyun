@@ -15,132 +15,190 @@ import {
   useDeleteGuestbook,
   usePaymentAccounts,
   useSaveTerminalSettings,
-  useAuthorizationCodes,
-  useCreateAuthorizationCode,
-  useRevokeAuthorizationCode,
-  useSearchUsers,
+  useCollaborationInvites,
+  useCreateCollaborationInvite,
+  useRevokeCollaborationInvite,
+  useCollaborationInviteLogs,
 } from '../hooks/useQueries'
+import { searchUser } from '../lib/api-client'
+import type { CreateCollaborationInviteResult, UserSearchResult } from '../lib/api-client'
+import type { CollaborationInvite } from '../types'
 
 /* ========================= 协助邀请弹窗 ========================= */
 
 const permissionLabels: Record<string, string> = {
-  record: '记账',
-  reconcile: '对账',
+  record: '仅记账',
+  reconcile: '仅对账',
   both: '记账 + 对账',
 }
 
-function InviteModal({ guestbookId, onClose }: { guestbookId: number; onClose: () => void }) {
+function localInputValue(d: dayjs.Dayjs) {
+  return d.format('YYYY-MM-DDTHH:mm')
+}
+
+interface InviteModalProps {
+  guestbookId: number
+  onClose: () => void
+}
+
+function InviteModal({ guestbookId, onClose }: InviteModalProps) {
   const { toast, showToast } = useToast()
-  const { data: codes = [], refetch } = useAuthorizationCodes(guestbookId)
-  const createMutation = useCreateAuthorizationCode()
-  const revokeMutation = useRevokeAuthorizationCode()
+  const { data: invites = [], refetch } = useCollaborationInvites(guestbookId)
+  const createMutation = useCreateCollaborationInvite()
+  const revokeMutation = useRevokeCollaborationInvite()
 
-  const [searchInput, setSearchInput] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selectedUser, setSelectedUser] = useState<{ id: number; username: string; nickname: string | null } | null>(null)
+  const [keywordInput, setKeywordInput] = useState('')
+  const [foundUser, setFoundUser] = useState<UserSearchResult | null>(null)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
   const [permissions, setPermissions] = useState<'record' | 'reconcile' | 'both'>('record')
-  const [expiresDays, setExpiresDays] = useState(7)
-  const [generatedCode, setGeneratedCode] = useState<string | null>(null)
-  const [showSearchDropdown, setShowSearchDropdown] = useState(false)
+  const [startInput, setStartInput] = useState(() => localInputValue(dayjs()))
+  const [endInput, setEndInput] = useState(() => localInputValue(dayjs().add(7, 'day')))
+  const [generated, setGenerated] = useState<CreateCollaborationInviteResult | null>(null)
+  const [now, setNow] = useState(() => dayjs())
+  const [revokeTarget, setRevokeTarget] = useState<CollaborationInvite | null>(null)
+  const [logsTarget, setLogsTarget] = useState<number | null>(null)
 
-  const { data: searchResults = [] } = useSearchUsers(debouncedQuery)
+  const { data: logs = [] } = useCollaborationInviteLogs(logsTarget)
+
+  const activeInvites = invites.filter((i) => i.status === 'pending' || i.status === 'accepted')
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(searchInput), 300)
-    return () => clearTimeout(timer)
-  }, [searchInput])
+    const timer = setInterval(() => setNow(dayjs()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
-  useEffect(() => {
-    refetch()
-  }, [guestbookId, refetch])
-
-  const activeCodes = codes.filter((c) => c.status === 'active' || c.status === 'bound')
-
-  function handleSelectUser(user: { id: number; username: string; nickname: string | null }) {
-    setSelectedUser(user)
-    setSearchInput(user.nickname || user.username)
-    setShowSearchDropdown(false)
+  async function handleSearch() {
+    const keyword = keywordInput.trim()
+    if (keyword.length < 3) {
+      showToast('请输入注册邮箱或用户名（至少 3 个字符）')
+      return
+    }
+    setSearching(true)
+    setSearchError(null)
+    try {
+      const user = await searchUser(keyword)
+      setFoundUser(user)
+    } catch {
+      setFoundUser(null)
+      setSearchError('未找到该邮箱或用户名对应的用户')
+    } finally {
+      setSearching(false)
+    }
   }
 
   async function handleCreate() {
-    if (!selectedUser) {
-      showToast('请先选择被邀请人')
+    if (!foundUser) {
+      showToast('请先查找并确认被邀请人')
       return
     }
-    const expiresAt = dayjs().add(expiresDays, 'day').toISOString()
+    const start = dayjs(startInput)
+    const end = dayjs(endInput)
+    if (!start.isValid() || !end.isValid()) {
+      showToast('请完整设置协作起止时间')
+      return
+    }
+    if (!end.isAfter(start)) {
+      showToast('结束时间必须晚于开始时间')
+      return
+    }
+    if (start.isBefore(dayjs())) {
+      showToast('开始时间不能早于当前时间')
+      return
+    }
     try {
       const res = await createMutation.mutateAsync({
+        invitee_keyword: keywordInput.trim(),
         guestbook_id: guestbookId,
-        grantee_name: selectedUser.nickname || selectedUser.username,
-        grantee_account_id: selectedUser.id,
         permissions,
-        expires_at: expiresAt,
+        collaboration_start_at: new Date(startInput).toISOString(),
+        collaboration_end_at: new Date(endInput).toISOString(),
       })
-      setGeneratedCode(res.code)
+      setGenerated(res)
       refetch()
-      showToast('邀请已生成')
+      showToast('邀请已发送')
     } catch (e) {
-      showToast('生成失败：' + (e instanceof Error ? e.message : '未知错误'))
+      showToast('发送失败：' + (e instanceof Error ? e.message : '未知错误'))
     }
-  }
-
-  function handleRevoke(codeId: number) {
-    revokeMutation.mutate(codeId, {
-      onSuccess: () => {
-        showToast('邀请已撤销')
-        refetch()
-      },
-      onError: (e) => showToast('撤销失败：' + e.message),
-    })
   }
 
   function handleCopyCode() {
-    if (!generatedCode) return
-    navigator.clipboard.writeText(generatedCode).then(() => {
-      showToast('授权码已复制')
+    if (!generated) return
+    navigator.clipboard.writeText(generated.invite_code).then(() => {
+      showToast('邀请码已复制')
     }).catch(() => {
       showToast('复制失败，请手动复制')
     })
   }
 
+  function handleRevoke() {
+    if (!revokeTarget?.id) return
+    revokeMutation.mutate(revokeTarget.id, {
+      onSuccess: () => {
+        showToast(revokeTarget.status === 'pending' ? '邀请已取消' : '授权已撤销')
+        setRevokeTarget(null)
+        refetch()
+      },
+      onError: (e) => showToast('操作失败：' + e.message),
+    })
+  }
+
   return (
     <Modal open={true} onClose={onClose} title="协助邀请" maxWidth="md">
-      {generatedCode ? (
+      {generated ? (
         <div className="flex flex-col items-center gap-4 py-4">
-          <p className="text-sm text-ink-secondary">邀请码已生成，请分享给被邀请人</p>
+          <p className="text-sm text-ink-secondary">邀请已发送，请将 6 位邀请码告知对方</p>
           <div className="flex items-center gap-3 rounded-lg bg-gray-50 px-6 py-4">
-            <span className="font-mono text-2xl font-bold tracking-wider text-primary">{generatedCode}</span>
+            <span className="font-mono text-2xl font-bold tracking-wider text-primary">{generated.invite_code}</span>
             <button onClick={handleCopyCode} className="rounded-btn border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10">
               复制
             </button>
           </div>
-          <p className="text-xs text-ink-secondary">被邀请人在授权码页面输入此码即可协助记账</p>
-          <button onClick={onClose} className="mt-2 rounded-btn bg-primary px-6 py-2.5 text-sm font-semibold text-white">
-            完成
-          </button>
+          <p className="text-xs text-ink-secondary">
+            对方在首页接受邀请时需输入此码；邀请信号剩余 {Math.max(0, dayjs(generated.signal_expires_at).diff(now, 'minute'))} 分钟
+          </p>
+          <p className="text-xs text-ink-secondary">
+            协作时段：{dayjs(generated.collaboration_start_at).format('MM-DD HH:mm')} ～ {dayjs(generated.collaboration_end_at).format('MM-DD HH:mm')}，对方仅在该时段内可协助管理（接受不改变时段）
+          </p>
+          <p className="text-xs text-ink-secondary">请确认对方知晓注册邮箱或用户名，对方可在「设置 → 安全邮箱」中核对注册邮箱</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={() => { setGenerated(null); setFoundUser(null); setKeywordInput(''); setSearchError(null) }} className="rounded-btn border border-line px-6 py-2.5 text-sm font-medium text-ink-secondary">
+              继续邀请
+            </button>
+            <button onClick={onClose} className="rounded-btn bg-primary px-6 py-2.5 text-sm font-semibold text-white">
+              完成
+            </button>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {/* 已有邀请列表 */}
-          {activeCodes.length > 0 && (
+          {/* 当前邀请列表 */}
+          {activeInvites.length > 0 && (
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium text-ink">当前邀请</p>
-              {activeCodes.map((c) => (
-                <div key={c.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+              {activeInvites.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
                   <div className="text-sm">
-                    <span className="font-medium text-ink">{c.grantee_name}</span>
-                    <span className="ml-2 text-xs text-ink-secondary">{permissionLabels[c.permissions] || c.permissions}</span>
+                    <span className="font-medium text-ink">{inv.invitee_username}</span>
+                    <span className="ml-2 text-xs text-ink-secondary">{permissionLabels[inv.permissions] || inv.permissions}</span>
                     <span className="ml-2 text-xs text-ink-secondary">
-                      {c.status === 'bound' ? '已接受' : '待接受'}
+                      {inv.status === 'pending'
+                        ? `待接受 · 信号剩余 ${Math.max(0, dayjs(inv.signal_expires_at).diff(now, 'minute'))} 分钟`
+                        : `协作中 · 至 ${dayjs(inv.collaboration_end_at).format('MM-DD HH:mm')}`}
                     </span>
                   </div>
-                  <button
-                    onClick={() => handleRevoke(c.id!)}
-                    disabled={revokeMutation.isPending}
-                    className="text-xs text-danger hover:underline disabled:opacity-50"
-                  >
-                    撤销
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setLogsTarget(inv.id ?? null)} className="text-xs text-ink-secondary hover:underline">
+                      日志
+                    </button>
+                    <button
+                      onClick={() => setRevokeTarget(inv)}
+                      disabled={revokeMutation.isPending}
+                      className="text-xs text-danger hover:underline disabled:opacity-50"
+                    >
+                      {inv.status === 'pending' ? '取消邀请' : '撤销授权'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -150,32 +208,33 @@ function InviteModal({ guestbookId, onClose }: { guestbookId: number; onClose: (
           <div className="flex flex-col gap-3">
             <p className="text-sm font-medium text-ink">新建邀请</p>
 
-            {/* 用户搜索 */}
-            <div className="relative">
-              <input
-                value={searchInput}
-                onChange={(e) => {
-                  setSearchInput(e.target.value)
-                  setSelectedUser(null)
-                  setShowSearchDropdown(true)
-                }}
-                onFocus={() => setShowSearchDropdown(true)}
-                placeholder="输入用户名搜索…"
-                className="h-11 w-full rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
-              />
-              {showSearchDropdown && debouncedQuery.length >= 2 && searchResults.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full rounded-lg border border-line bg-card shadow-lg">
-                  {searchResults.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => handleSelectUser(u)}
-                      className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50"
-                    >
-                      <span className="font-medium text-ink">{u.nickname || u.username}</span>
-                      {u.nickname && <span className="text-xs text-ink-secondary">@{u.username}</span>}
-                    </button>
-                  ))}
-                </div>
+            {/* 账户精确查找 */}
+            <div>
+              <div className="flex gap-2">
+                <input
+                  value={keywordInput}
+                  onChange={(e) => {
+                    setKeywordInput(e.target.value)
+                    setFoundUser(null)
+                    setSearchError(null)
+                  }}
+                  placeholder="输入对方注册邮箱或用户名…"
+                  className="h-11 flex-1 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
+                />
+                <button
+                  onClick={handleSearch}
+                  disabled={searching}
+                  className="rounded-btn border border-primary px-4 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                >
+                  {searching ? '查找中…' : '查找'}
+                </button>
+              </div>
+              {searchError && <p className="mt-1 text-xs text-danger">{searchError}</p>}
+              {foundUser && (
+                <p className="mt-1 text-xs text-ink-secondary">
+                  已找到：<span className="font-medium text-ink">{foundUser.username}</span>
+                  {foundUser.email && <span>（{foundUser.email}）</span>}，确认无误后发送邀请
+                </p>
               )}
             </div>
 
@@ -196,36 +255,69 @@ function InviteModal({ guestbookId, onClose }: { guestbookId: number; onClose: (
               ))}
             </div>
 
-            {/* 有效期 */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-ink-secondary">有效期</span>
-              <div className="flex gap-2">
-                {[1, 3, 7, 30].map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setExpiresDays(d)}
-                    className={`rounded-btn border px-3 py-1.5 text-sm transition-colors ${
-                      expiresDays === d
-                        ? 'border-primary bg-primary/10 font-medium text-primary'
-                        : 'border-line text-ink-secondary hover:border-primary'
-                    }`}
-                  >
-                    {d}天
-                  </button>
-                ))}
-              </div>
+            {/* 协作起止时间（精确到分钟） */}
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-sm text-ink-secondary">协作时段</span>
+              <input
+                type="datetime-local"
+                value={startInput}
+                onChange={(e) => setStartInput(e.target.value)}
+                className="h-10 flex-1 rounded-btn border border-line px-3 text-sm outline-none focus:border-2 focus:border-primary"
+              />
+              <span className="text-sm text-ink-secondary">至</span>
+              <input
+                type="datetime-local"
+                value={endInput}
+                onChange={(e) => setEndInput(e.target.value)}
+                className="h-10 flex-1 rounded-btn border border-line px-3 text-sm outline-none focus:border-2 focus:border-primary"
+              />
             </div>
 
             {/* 提交按钮 */}
             <button
               onClick={handleCreate}
-              disabled={!selectedUser || createMutation.isPending}
+              disabled={!foundUser || createMutation.isPending}
               className="mt-2 rounded-btn bg-primary py-3 text-sm font-bold text-white disabled:bg-disabled"
             >
-              {createMutation.isPending ? '生成中…' : '生成邀请码'}
+              {createMutation.isPending ? '发送中…' : '发送邀请'}
             </button>
           </div>
         </div>
+      )}
+
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        title={revokeTarget?.status === 'pending' ? '取消邀请' : '撤销授权'}
+        message={
+          revokeTarget?.status === 'pending'
+            ? '确定取消此协作邀请？取消后对方首页的邀请信号将消失。'
+            : '确定撤销此协作授权？撤销后对方将无法继续协助管理该礼簿。'
+        }
+        variant="warning"
+        confirmLabel={revokeTarget?.status === 'pending' ? '取消邀请' : '撤销授权'}
+        onConfirm={handleRevoke}
+        onCancel={() => setRevokeTarget(null)}
+        loading={revokeMutation.isPending}
+      />
+
+      {logsTarget !== null && (
+        <Modal open={true} onClose={() => setLogsTarget(null)} title="操作日志" maxWidth="md">
+          <div className="flex flex-col gap-2">
+            {logs.length === 0 && <p className="text-sm text-ink-secondary">暂无日志</p>}
+            {logs.map((log) => (
+              <div key={log.id} className="flex items-start justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium text-ink">{log.action_type}</span>
+                  {log.operator_name && <span className="ml-2 text-xs text-ink-secondary">{log.operator_name}</span>}
+                  {log.detail && <p className="text-xs text-ink-secondary">{log.detail}</p>}
+                </div>
+                <span className="whitespace-nowrap text-xs text-ink-secondary">
+                  {dayjs(log.created_at).format('MM-DD HH:mm')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
 
       <Toast message={toast} onClose={() => showToast(null)} />

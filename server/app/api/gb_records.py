@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
+from app.core.guestbook_access import get_guestbook_access
 from app.core.helpers import model_to_dict, paginate_query, write_audit_log
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
@@ -28,6 +29,12 @@ EditorUser = Annotated[User, Depends(require_role("super_admin", "admin", "user"
 OwnerUser = Annotated[User, Depends(require_role("super_admin", "admin", "user"))]
 
 
+async def _require_read_access(db: DbSession, current_user: CurrentUser, gb_id: int) -> None:
+    """只读端点统一校验：owner / family 放行，collaborator 需 reconcile 或 both。"""
+    access = await get_guestbook_access(db, current_user, gb_id)
+    access.require("reconcile", "both")
+
+
 @router.get("/guestbooks/{gb_id}/records", response_model=PaginatedResponse[GbRecordResponse])
 async def list_records(
     gb_id: int,
@@ -37,10 +44,10 @@ async def list_records(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
+    await _require_read_access(db, current_user, gb_id)
     stmt = (
         select(GbRecord)
-        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
-               GbRecord.is_deleted == False)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.is_deleted == False)
         .order_by(GbRecord.record_time.desc())
     )
     if not include_private:
@@ -56,10 +63,10 @@ async def recent_records(
     db: DbSession,
     limit: int = Query(5, ge=1, le=100),
 ):
+    await _require_read_access(db, current_user, gb_id)
     result = await db.execute(
         select(GbRecord)
-        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
-               GbRecord.is_deleted == False)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.is_deleted == False)
         .order_by(GbRecord.record_time.desc())
         .limit(limit)
     )
@@ -73,12 +80,12 @@ async def search_records(
     db: DbSession,
     q: str = Query(..., min_length=1),
 ):
+    await _require_read_access(db, current_user, gb_id)
     keyword = f"%{q}%"
     result = await db.execute(
         select(GbRecord)
         .where(
             GbRecord.guestbook_id == gb_id,
-            GbRecord.owner_id == current_user.id,
             GbRecord.is_deleted == False,
             (GbRecord.guest_name.ilike(keyword)) | (GbRecord.agent_name.ilike(keyword)),
         )
@@ -93,10 +100,11 @@ async def check_duplicate(
     db: DbSession,
     name: str = Query(...),
 ):
+    await _require_read_access(db, current_user, gb_id)
     result = await db.execute(
         select(GbRecord)
-        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
-               GbRecord.guest_name == name, GbRecord.is_deleted == False)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.guest_name == name,
+               GbRecord.is_deleted == False)
     )
     records = result.scalars().all()
     return {"has_duplicate": len(records) > 0, "records": [GbRecordResponse.model_validate(r) for r in records]}
@@ -109,10 +117,11 @@ async def find_by_phone(
     db: DbSession,
     phone: str = Query(...),
 ):
+    await _require_read_access(db, current_user, gb_id)
     result = await db.execute(
         select(GbRecord)
-        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
-               GbRecord.phone == phone, GbRecord.is_deleted == False)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.phone == phone,
+               GbRecord.is_deleted == False)
     )
     return result.scalar_one_or_none()
 
@@ -251,12 +260,13 @@ async def update_check_status(
 ):
     result = await db.execute(
         select(GbRecord)
-        .where(GbRecord.id == record_id, GbRecord.owner_id == current_user.id,
-               GbRecord.is_deleted == False)
+        .where(GbRecord.id == record_id, GbRecord.is_deleted == False)
     )
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
+    access = await get_guestbook_access(db, current_user, record.guestbook_id)
+    access.require("reconcile", "both")
     record.check_status = "checked" if checked else "unchecked"
     record.updated_at = utcnow()
     await db.commit()
@@ -272,10 +282,18 @@ async def batch_check(
     new_status = "checked" if body.checked else "unchecked"
     result = await db.execute(
         select(GbRecord)
-        .where(GbRecord.id.in_(body.ids), GbRecord.owner_id == current_user.id,
-               GbRecord.is_deleted == False)
+        .where(GbRecord.id.in_(body.ids), GbRecord.is_deleted == False)
     )
     records = result.scalars().all()
+    if not records:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    # 按礼簿分组校验访问权，任一礼簿无对账权限则整体拒绝，防止跨礼簿越权
+    gb_ids = {r.guestbook_id for r in records}
+    for gb_id in gb_ids:
+        access = await get_guestbook_access(db, current_user, gb_id)
+        access.require("reconcile", "both")
+
     for record in records:
         record.check_status = new_status
         record.updated_at = utcnow()
@@ -289,14 +307,15 @@ async def account_summary(
     current_user: CurrentUser,
     db: DbSession,
 ):
+    await _require_read_access(db, current_user, gb_id)
     stmt = (
         select(
             GbRecord.account_id,
             func.count(GbRecord.id).label("record_count"),
             func.sum(GbRecord.amount).label("total_amount"),
         )
-        .where(GbRecord.guestbook_id == gb_id, GbRecord.owner_id == current_user.id,
-               GbRecord.account_id.isnot(None), GbRecord.is_deleted == False)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.account_id.isnot(None),
+               GbRecord.is_deleted == False)
         .group_by(GbRecord.account_id)
     )
     result = await db.execute(stmt)

@@ -79,9 +79,12 @@ export const queryKeys = {
     profile: () => [...queryKeys.account.all, 'profile'] as const,
     securityEmails: () => [...queryKeys.account.all, 'securityEmails'] as const,
   },
-  authorization: {
-    all: ['authorization'] as const,
-    codes: (guestbookId?: number) =>
-      [...queryKeys.authorization.all, 'codes', guestbookId ?? 'all'] as const,
+  collaboration: {
+    all: ['collaboration'] as const,
+    invites: (guestbookId?: number) =>
+      [...queryKeys.collaboration.all, 'invites', guestbookId ?? 'all'] as const,
+    pending: () => [...queryKeys.collaboration.all, 'pending'] as const,
+    accepted: () => [...queryKeys.collaboration.all, 'accepted'] as const,
+    logs: (inviteId: number) => [...queryKeys.collaboration.all, 'logs', inviteId] as const,
   },
 }

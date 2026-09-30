@@ -253,32 +253,56 @@ export interface PendingApproval {
   updated_at: string
 }
 
-/** 授权码 */
-export interface AuthorizationCode {
+/** 协作邀请（邀请人视角） */
+export interface CollaborationInvite {
   id?: number
-  owner_id: number
+  inviter_id: number
+  invitee_id: number
+  invitee_username: string
+  invitee_email: string | null
   guestbook_id: number
-  code: string
-  grantee_name: string
-  grantee_account_id: number
-  grantee_user_id?: number
+  invite_code: string | null
   permissions: 'record' | 'reconcile' | 'both'
-  status: 'active' | 'bound' | 'revoked' | 'expired'
-  expires_at: string
-  bound_at?: string
+  status: 'pending' | 'accepted' | 'rejected' | 'revoked' | 'expired'
+  signal_expires_at: string
+  collaboration_start_at: string
+  collaboration_end_at: string
+  accepted_at?: string
   created_at: string
 }
 
-/** 授权码操作日志 */
-export interface AuthorizationActionLog {
-  id?: number
-  authorization_code_id: number
+/** 首页待处理协作邀请（被邀请人视角） */
+export interface CollaborationInvitePending {
+  id: number
+  inviter_id: number
+  inviter_username: string
+  guestbook_id: number
+  guestbook_name: string
+  permissions: 'record' | 'reconcile' | 'both'
+  signal_expires_at: string
+  created_at: string
+}
+
+/** 已接受的协作（被邀请人视角） */
+export interface CollaborationInviteAccepted {
+  id: number
+  inviter_id: number
+  inviter_username: string
+  guestbook_id: number
+  guestbook_name: string
+  permissions: 'record' | 'reconcile' | 'both'
+  collaboration_start_at: string
+  collaboration_end_at: string
+  accepted_at: string
+}
+
+/** 协作邀请操作日志 */
+export interface CollaborationActionLog {
+  id: number
+  invite_id: number
   action_type: string
   operator_name?: string
-  client_id?: string
   detail?: string
-  record_id?: number
-  grantee_user_id?: number
   created_at: string
 }
 

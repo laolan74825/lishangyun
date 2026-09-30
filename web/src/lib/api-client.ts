@@ -3,9 +3,11 @@ import type {
   AdminUser,
   AdminUserCreate,
   AdminUserUpdate,
-  AuthorizationActionLog,
-  AuthorizationCode,
   BalanceAdjustment,
+  CollaborationActionLog,
+  CollaborationInvite,
+  CollaborationInviteAccepted,
+  CollaborationInvitePending,
   DailyRecord,
   EventDistributionItem,
   FamilyGroup,
@@ -821,52 +823,88 @@ export async function getSharedStats(groupId: number): Promise<{
   return api.get(`/family/groups/${groupId}/shared/stats`)
 }
 
-/* ========================= 授权码管理 ========================= */
+/* ========================= 协作邀请 ========================= */
 
-export async function createAuthorizationCode(data: {
-  guestbook_id: number
-  grantee_name: string
-  grantee_account_id: number
-  permissions?: 'record' | 'reconcile' | 'both'
-  expires_at: string
-}): Promise<{ id: number; code: string }> {
-  return api.post('/authorization/codes', data)
+export interface UserSearchResult {
+  id: number
+  username: string
+  email: string | null
 }
 
-export async function listAuthorizationCodes(filters?: {
+export async function searchUser(keyword: string): Promise<UserSearchResult> {
+  return api.get<UserSearchResult>(
+    `/collaboration/search?keyword=${encodeURIComponent(keyword)}`
+  )
+}
+
+export interface CreateCollaborationInviteInput {
+  invitee_keyword: string
+  guestbook_id: number
+  permissions: 'record' | 'reconcile' | 'both'
+  collaboration_start_at: string
+  collaboration_end_at: string
+}
+
+export interface CreateCollaborationInviteResult {
+  id: number
+  invite_code: string
+  invitee_email: string | null
+  signal_expires_at: string
+  collaboration_start_at: string
+  collaboration_end_at: string
+}
+
+export async function createCollaborationInvite(
+  data: CreateCollaborationInviteInput
+): Promise<CreateCollaborationInviteResult> {
+  return api.post('/collaboration/invites', data)
+}
+
+export async function getPendingInvites(): Promise<CollaborationInvitePending[]> {
+  return api.get<CollaborationInvitePending[]>('/collaboration/invites/pending')
+}
+
+export async function acceptCollaborationInvite(
+  inviteId: number,
+  inviteCode: string
+): Promise<{
+  message: string
+  guestbook_id: number
+  permissions: string
+  collaboration_start_at: string
+  collaboration_end_at: string
+}> {
+  return api.post('/collaboration/invites/accept', {
+    invite_id: inviteId,
+    invite_code: inviteCode,
+  })
+}
+
+export async function rejectCollaborationInvite(inviteId: number): Promise<{ message: string }> {
+  return api.post(`/collaboration/invites/${inviteId}/reject`)
+}
+
+export async function listCollaborationInvites(filters?: {
   guestbook_id?: number
   status?: string
-}): Promise<AuthorizationCode[]> {
+}): Promise<CollaborationInvite[]> {
   const params = new URLSearchParams()
   if (filters?.guestbook_id) params.set('guestbook_id', String(filters.guestbook_id))
   if (filters?.status) params.set('status', filters.status)
   const qs = params.toString()
-  return api.get<AuthorizationCode[]>(`/authorization/codes${qs ? `?${qs}` : ''}`)
+  return api.get<CollaborationInvite[]>(`/collaboration/invites${qs ? `?${qs}` : ''}`)
 }
 
-export async function getAuthorizationCode(codeId: number): Promise<AuthorizationCode> {
-  return api.get<AuthorizationCode>(`/authorization/codes/${codeId}`)
+export async function listAcceptedCollaborations(): Promise<CollaborationInviteAccepted[]> {
+  return api.get<CollaborationInviteAccepted[]>('/collaboration/invites/accepted')
 }
 
-export async function bindAuthorizationCode(code: string, grantorAccountId: number): Promise<{
-  message: string
-  guestbook_id: number
-  permissions: string
-}> {
-  return api.post('/authorization/codes/bind', {
-    code,
-    grantor_account_id: grantorAccountId,
-  })
+export async function revokeCollaborationInvite(inviteId: number): Promise<{ message: string }> {
+  return api.post(`/collaboration/invites/${inviteId}/revoke`)
 }
 
-export async function revokeAuthorizationCode(codeId: number): Promise<void> {
-  await api.post(`/authorization/codes/${codeId}/revoke`)
-}
-
-export async function getAuthorizationCodeLogs(codeId: number, page = 1, pageSize = 20): Promise<AuthorizationActionLog[]> {
-  return api.get<AuthorizationActionLog[]>(
-    `/authorization/codes/${codeId}/logs?page=${page}&page_size=${pageSize}`
-  )
+export async function getCollaborationInviteLogs(inviteId: number): Promise<CollaborationActionLog[]> {
+  return api.get<CollaborationActionLog[]>(`/collaboration/invites/${inviteId}/logs`)
 }
 
 /* ========================= 审批管理 ========================= */
@@ -980,19 +1018,6 @@ export async function uploadFamilyKey(data: {
   encrypted_family_key: string
 }): Promise<{ message: string }> {
   return api.post('/security/upload-family-key', data)
-}
-
-/* ========================= 用户搜索 ========================= */
-
-export interface UserSearchResult {
-  id: number
-  username: string
-  nickname: string | null
-}
-
-export async function searchUsers(q: string): Promise<UserSearchResult[]> {
-  if (q.length < 2) return []
-  return api.get<UserSearchResult[]>(`/auth/users/search?q=${encodeURIComponent(q)}`)
 }
 
 /* ========================= 修改密码 ========================= */

@@ -16,7 +16,7 @@ from app.models.pending_approval import PendingApproval
 from app.models.user_key_config import UserKeyConfig
 from app.models.notification import Notification
 from app.models.person_balance_adjustment import PersonBalanceAdjustment
-from app.models.authorization_code import AuthorizationCode
+from app.models.collaboration_invite import CollaborationInvite
 from app.models.authorization_action_log import AuthorizationActionLog
 from app.models.email_verification_code import EmailVerificationCode
 
@@ -39,7 +39,7 @@ __all__ = [
     "UserKeyConfig",
     "Notification",
     "PersonBalanceAdjustment",
-    "AuthorizationCode",
+    "CollaborationInvite",
     "AuthorizationActionLog",
     "EmailVerificationCode",
 ]

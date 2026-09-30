@@ -752,51 +752,95 @@ export function useDeleteAccount() {
 // 重新导出账户相关类型，供页面组件使用
 export type { ProfileResponse, SecurityEmailItem }
 
-/* ========================= 授权码（Authorization Codes）查询 Hooks ========================= */
+/* ========================= 协作邀请（Collaboration）查询 Hooks ========================= */
 
-/** 查询指定礼簿的授权码列表 */
-export function useAuthorizationCodes(guestbookId?: number) {
+/** 通过邮箱或用户名精确查找用户（协作邀请选人） */
+export function useSearchUser(keyword: string) {
   return useQuery({
-    queryKey: queryKeys.authorization.codes(guestbookId),
-    queryFn: () => api.listAuthorizationCodes(guestbookId ? { guestbook_id: guestbookId } : undefined),
-    enabled: guestbookId !== undefined,
-  })
-}
-
-/** 创建授权码（协助邀请） */
-export function useCreateAuthorizationCode() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (data: {
-      guestbook_id: number
-      grantee_name: string
-      grantee_account_id: number
-      permissions?: 'record' | 'reconcile' | 'both'
-      expires_at: string
-    }) => api.createAuthorizationCode(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.authorization.all })
-    },
-  })
-}
-
-/** 撤销授权码 */
-export function useRevokeAuthorizationCode() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (codeId: number) => api.revokeAuthorizationCode(codeId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.authorization.all })
-    },
-  })
-}
-
-/** 搜索用户（用于协助邀请选择被邀请人） */
-export function useSearchUsers(keyword: string) {
-  return useQuery({
-    queryKey: ['users', 'search', keyword],
-    queryFn: () => api.searchUsers(keyword),
-    enabled: keyword.length >= 2,
+    queryKey: ['collaboration', 'search', keyword],
+    queryFn: () => api.searchUser(keyword),
+    enabled: keyword.trim().length >= 3,
     staleTime: 30_000,
+    retry: false,
+  })
+}
+
+/** 查询我发出的协作邀请列表 */
+export function useCollaborationInvites(guestbookId?: number) {
+  return useQuery({
+    queryKey: queryKeys.collaboration.invites(guestbookId),
+    queryFn: () => api.listCollaborationInvites(guestbookId ? { guestbook_id: guestbookId } : undefined),
+  })
+}
+
+/** 发送协作邀请 */
+export function useCreateCollaborationInvite() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: api.CreateCollaborationInviteInput) => api.createCollaborationInvite(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.collaboration.all })
+    },
+  })
+}
+
+/** 查询首页待处理邀请（30s 轮询） */
+export function usePendingInvites() {
+  return useQuery({
+    queryKey: queryKeys.collaboration.pending(),
+    queryFn: () => api.getPendingInvites(),
+    refetchInterval: 30_000,
+  })
+}
+
+/** 接受协作邀请 */
+export function useAcceptCollaborationInvite() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ inviteId, inviteCode }: { inviteId: number; inviteCode: string }) =>
+      api.acceptCollaborationInvite(inviteId, inviteCode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.collaboration.all })
+    },
+  })
+}
+
+/** 拒绝协作邀请 */
+export function useRejectCollaborationInvite() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (inviteId: number) => api.rejectCollaborationInvite(inviteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.collaboration.all })
+    },
+  })
+}
+
+/** 查询我接受的协作列表（5min 轮询） */
+export function useAcceptedCollaborations() {
+  return useQuery({
+    queryKey: queryKeys.collaboration.accepted(),
+    queryFn: () => api.listAcceptedCollaborations(),
+    refetchInterval: 300_000,
+  })
+}
+
+/** 撤销协作邀请 / 授权 */
+export function useRevokeCollaborationInvite() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (inviteId: number) => api.revokeCollaborationInvite(inviteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.collaboration.all })
+    },
+  })
+}
+
+/** 查询协作邀请操作日志 */
+export function useCollaborationInviteLogs(inviteId: number | null) {
+  return useQuery({
+    queryKey: queryKeys.collaboration.logs(inviteId ?? 0),
+    queryFn: () => api.getCollaborationInviteLogs(inviteId as number),
+    enabled: inviteId !== null,
   })
 }

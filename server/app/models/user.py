@@ -38,4 +38,3 @@ class User(Base):
     family_memberships: Mapped[list["FamilyMember"]] = relationship(back_populates="user")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="user")
     person_balance_adjustments: Mapped[list["PersonBalanceAdjustment"]] = relationship(back_populates="owner")
-    authorization_codes: Mapped[list["AuthorizationCode"]] = relationship(back_populates="owner", foreign_keys="AuthorizationCode.owner_id")
