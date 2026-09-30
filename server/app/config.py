@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     app_encryption_key: str = DEFAULT_ENCRYPTION_KEY
     allowed_origins: str = "http://localhost:5173"
     environment: str = "development"
+    login_max_attempts: int = 5
+    login_lock_minutes: int = 10
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

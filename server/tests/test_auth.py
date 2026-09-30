@@ -1,7 +1,10 @@
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
+from app.config import settings
+from app.core.rate_limit import login_attempts
 from app.core.security import hash_password
 from app.core.time import utcnow
 from app.models.email_verification_code import EmailVerificationCode
@@ -111,6 +114,77 @@ class TestLogin:
             "password": "password123",
         })
         assert resp.status_code == 403
+
+
+class TestLoginRateLimit:
+    @pytest.fixture(autouse=True)
+    def _clear_attempts(self):
+        # 内存计数器跨测试存活，避免其他用例的失败记录干扰
+        login_attempts._attempts.clear()
+        yield
+        login_attempts._attempts.clear()
+
+    async def test_locked_after_max_failures(self, client, normal_user, monkeypatch):
+        monkeypatch.setattr(settings, "login_max_attempts", 3)
+        for _ in range(3):
+            resp = client.post("/api/auth/login", json={
+                "username": "user1", "password": "wrongpassword",
+            })
+            assert resp.status_code == 401
+
+        # 即使密码正确，锁定期间也返回 429
+        resp = client.post("/api/auth/login", json={
+            "username": "user1", "password": "password123",
+        })
+        assert resp.status_code == 429
+        assert "锁定" in resp.json()["detail"]
+
+    async def test_success_resets_failure_count(self, client, normal_user, monkeypatch):
+        monkeypatch.setattr(settings, "login_max_attempts", 3)
+        for _ in range(2):
+            client.post("/api/auth/login", json={
+                "username": "user1", "password": "wrongpassword",
+            })
+
+        resp = client.post("/api/auth/login", json={
+            "username": "user1", "password": "password123",
+        })
+        assert resp.status_code == 200
+
+        # 成功后计数清零：再失败 2 次（不到上限）仍可正常登录
+        for _ in range(2):
+            client.post("/api/auth/login", json={
+                "username": "user1", "password": "wrongpassword",
+            })
+        resp = client.post("/api/auth/login", json={
+            "username": "user1", "password": "password123",
+        })
+        assert resp.status_code == 200
+
+    async def test_lock_expires_after_window(self, client, normal_user, monkeypatch):
+        from app.core import rate_limit
+
+        monkeypatch.setattr(settings, "login_max_attempts", 2)
+        monkeypatch.setattr(settings, "login_lock_minutes", 10)
+        real_now = rate_limit._now
+        fake_now = [real_now()]
+        monkeypatch.setattr(rate_limit, "_now", lambda: fake_now[0])
+
+        for _ in range(2):
+            client.post("/api/auth/login", json={
+                "username": "user1", "password": "wrongpassword",
+            })
+        resp = client.post("/api/auth/login", json={
+            "username": "user1", "password": "password123",
+        })
+        assert resp.status_code == 429
+
+        # 模拟窗口期过后：解锁且计数清零
+        fake_now[0] += 10 * 60 + 1
+        resp = client.post("/api/auth/login", json={
+            "username": "user1", "password": "password123",
+        })
+        assert resp.status_code == 200
 
 
 class TestMe:

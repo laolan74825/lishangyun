@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from app.core.crypto import decrypt_value, encrypt_value
 from app.core.dependencies import CurrentUser, DbSession, get_current_user
 from app.core.email_service import send_reset_email, send_verification_email
+from app.core.rate_limit import login_attempts
 from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
 from app.core.time import utcnow
 from app.models.email_verification_code import EmailVerificationCode
@@ -184,14 +185,24 @@ async def register(body: RegisterRequest, db: DbSession):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: DbSession):
+    if login_attempts.is_locked(body.username):
+        minutes = login_attempts.remaining_minutes(body.username)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"失败次数过多，账户已临时锁定，请约 {minutes} 分钟后重试",
+        )
+
     result = await db.execute(
         select(User).where(User.username == body.username, User.is_deleted == False)
     )
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
+        login_attempts.record_failure(body.username)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账户已被禁用")
+
+    login_attempts.record_success(body.username)
 
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password)
