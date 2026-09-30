@@ -150,7 +150,7 @@ describe('LoginPage - 登录流程', () => {
     await user.click(screen.getByRole('button', { name: '登录' }))
 
     await waitFor(() => {
-      expect(screen.getByText('未授权')).toBeInTheDocument()
+      expect(screen.getByText('token expired')).toBeInTheDocument()
     })
   })
 
