@@ -544,6 +544,213 @@ describe('LoginPage - UI 状态', () => {
   })
 })
 
+describe('LoginPage - 内联错误提示', () => {
+  beforeEach(() => {
+    server.use(
+      http.get('/api/auth/status', () => {
+        return HttpResponse.json({ needs_init: false, user_count: 1 })
+      })
+    )
+  })
+
+  it('登录失败时错误显示在密码输入框下方并标记红色边框', async () => {
+    const user = userEvent.setup()
+
+    server.use(
+      http.post('/api/auth/login', () => {
+        return HttpResponse.json({ detail: '用户名或密码错误' }, { status: 400 })
+      })
+    )
+
+    render(<LoginPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('登录以继续')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'wronguser')
+    await user.type(screen.getByPlaceholderText('请输入密码'), 'wrongpass')
+    await user.click(screen.getByRole('button', { name: '登录' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('用户名或密码错误')).toBeInTheDocument()
+    })
+
+    // 提示位于密码输入框下方，且密码框带错误边框
+    const passwordInput = screen.getByPlaceholderText('请输入密码')
+    expect(passwordInput.nextElementSibling?.textContent).toBe('用户名或密码错误')
+    expect(passwordInput.className).toContain('border-danger')
+    // 不再是顶部横幅形式
+    expect(document.querySelector('.bg-danger\\/10')).toBeNull()
+  })
+
+  it('修改密码输入内容后错误提示消失', async () => {
+    const user = userEvent.setup()
+
+    server.use(
+      http.post('/api/auth/login', () => {
+        return HttpResponse.json({ detail: '用户名或密码错误' }, { status: 400 })
+      })
+    )
+
+    render(<LoginPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('登录以继续')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'wronguser')
+    const passwordInput = screen.getByPlaceholderText('请输入密码')
+    await user.type(passwordInput, 'wrongpass')
+    await user.click(screen.getByRole('button', { name: '登录' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('用户名或密码错误')).toBeInTheDocument()
+    })
+
+    await user.type(passwordInput, 'x')
+
+    expect(screen.queryByText('用户名或密码错误')).not.toBeInTheDocument()
+    expect(passwordInput.className).not.toContain('border-danger')
+  })
+})
+
+describe('LoginPage - 密码可见性', () => {
+  beforeEach(() => {
+    server.use(
+      http.get('/api/auth/status', () => {
+        return HttpResponse.json({ needs_init: false, user_count: 1 })
+      })
+    )
+  })
+
+  it('密码输入框不再有自定义眼睛按钮，保持原生 password 类型', () => {
+    render(<LoginPage />)
+
+    const passwordInput = screen.getByPlaceholderText('请输入密码')
+    expect(passwordInput).toHaveAttribute('type', 'password')
+    // 密码框容器内没有自定义可见性切换按钮
+    expect(passwordInput.parentElement?.querySelector('button')).toBeNull()
+  })
+})
+
+describe('LoginPage - 注册表单内联错误提示', () => {
+  beforeEach(() => {
+    server.use(
+      http.get('/api/auth/status', () => {
+        return HttpResponse.json({ needs_init: false, user_count: 1 })
+      })
+    )
+  })
+
+  async function openRegisterForm(user: ReturnType<typeof userEvent.setup>) {
+    render(<LoginPage />)
+    await waitFor(() => {
+      expect(screen.getByText('登录以继续')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('没有账户？立即注册'))
+    await waitFor(() => {
+      expect(screen.getByText('创建新账户')).toBeInTheDocument()
+    })
+  }
+
+  it('两次密码不一致时错误显示在确认密码框下方', async () => {
+    const user = userEvent.setup()
+    await openRegisterForm(user)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
+    await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
+    const confirmInput = screen.getByPlaceholderText('请再次输入密码')
+    await user.type(confirmInput, 'password456')
+
+    fireEvent.submit(document.querySelector('form')!)
+
+    await waitFor(() => {
+      expect(screen.getByText('两次输入的密码不一致')).toBeInTheDocument()
+    })
+
+    expect(confirmInput.nextElementSibling?.textContent).toBe('两次输入的密码不一致')
+    expect(confirmInput.className).toContain('border-danger')
+  })
+
+  it('注册接口错误（用户名已存在）显示在用户名的输入框下方', async () => {
+    const user = userEvent.setup()
+
+    server.use(
+      http.post('/api/auth/send-verification-code', () => {
+        return HttpResponse.json({ message: 'ok' })
+      }),
+      http.post('/api/auth/register', () => {
+        return HttpResponse.json({ detail: '用户名已存在' }, { status: 400 })
+      })
+    )
+
+    await openRegisterForm(user)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'existinguser')
+    await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
+    await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
+    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
+    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.click(screen.getByRole('checkbox'))
+
+    fireEvent.submit(document.querySelector('form')!)
+
+    await waitFor(() => {
+      expect(screen.getByText('用户名已存在')).toBeInTheDocument()
+    })
+
+    const usernameInput = screen.getByPlaceholderText('请输入用户名')
+    expect(usernameInput.nextElementSibling?.textContent).toBe('用户名已存在')
+    expect(usernameInput.className).toContain('border-danger')
+  })
+
+  it('未同意用户协议时错误显示在协议勾选下方', async () => {
+    const user = userEvent.setup()
+
+    server.use(
+      http.post('/api/auth/send-verification-code', () => {
+        return HttpResponse.json({ message: 'ok' })
+      })
+    )
+
+    await openRegisterForm(user)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
+    await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
+    await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
+    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
+    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+
+    fireEvent.submit(document.querySelector('form')!)
+
+    await waitFor(() => {
+      expect(screen.getByText('请先阅读并同意用户协议')).toBeInTheDocument()
+    })
+  })
+
+  it('修改字段内容后对应的错误提示消失', async () => {
+    const user = userEvent.setup()
+    await openRegisterForm(user)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
+    await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
+    const confirmInput = screen.getByPlaceholderText('请再次输入密码')
+    await user.type(confirmInput, 'password456')
+
+    fireEvent.submit(document.querySelector('form')!)
+
+    await waitFor(() => {
+      expect(screen.getByText('两次输入的密码不一致')).toBeInTheDocument()
+    })
+
+    await user.type(confirmInput, 'x')
+
+    expect(screen.queryByText('两次输入的密码不一致')).not.toBeInTheDocument()
+    expect(confirmInput.className).not.toContain('border-danger')
+  })
+})
+
 describe('LoginPage - API 状态检查', () => {
   it('状态接口失败时默认显示登录表单', async () => {
     server.use(

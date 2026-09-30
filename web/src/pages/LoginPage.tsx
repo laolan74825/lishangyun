@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react'
 import { useNavigate, Link } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { setToken, setCurrentUser, type AuthUser } from '../lib/auth'
+import EmailSuggestInput, { rememberEmail } from '../components/EmailSuggestInput'
 
 interface TokenResponse {
   access_token: string
@@ -12,6 +13,8 @@ interface AuthStatus {
   needs_init: boolean
   user_count: number
 }
+
+type ErrorField = 'username' | 'password' | 'confirm' | 'code1' | 'code2' | 'terms'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -29,10 +32,9 @@ export default function LoginPage() {
   const [sendingCode1, setSendingCode1] = useState(false)
   const [sendingCode2, setSendingCode2] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   const [error, setError] = useState('')
+  const [errorField, setErrorField] = useState<ErrorField>('password')
   const [loading, setLoading] = useState(false)
   const timerRef1 = useRef<ReturnType<typeof setInterval> | null>(null)
   const timerRef2 = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -67,7 +69,12 @@ export default function LoginPage() {
     }, 1000)
   }, [])
 
-  async function handleSendCode(email: string, setter: React.Dispatch<React.SetStateAction<number>>, timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>, setSending: React.Dispatch<React.SetStateAction<boolean>>) {
+  function setFieldError(message: string, field: ErrorField) {
+    setError(message)
+    setErrorField(field)
+  }
+
+  async function handleSendCode(email: string, setter: React.Dispatch<React.SetStateAction<number>>, timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>, setSending: React.Dispatch<React.SetStateAction<boolean>>, field: ErrorField) {
     if (!email) return
     setError('')
     setSending(true)
@@ -75,7 +82,7 @@ export default function LoginPage() {
       await api.post('/auth/send-verification-code', { email })
       startCountdown(setter, timerRef)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '验证码发送失败')
+      setFieldError(err instanceof Error ? err.message : '验证码发送失败', field)
     } finally {
       setSending(false)
     }
@@ -86,22 +93,22 @@ export default function LoginPage() {
     setError('')
 
     if (isRegister && password !== confirmPassword) {
-      setError('两次输入的密码不一致')
+      setFieldError('两次输入的密码不一致', 'confirm')
       return
     }
 
     if (isRegister && !securityEmail1Code) {
-      setError('请输入主安全邮箱验证码')
+      setFieldError('请输入主安全邮箱验证码', 'code1')
       return
     }
 
     if (isRegister && securityEmail2 && !securityEmail2Code) {
-      setError('请输入备用安全邮箱验证码')
+      setFieldError('请输入备用安全邮箱验证码', 'code2')
       return
     }
 
     if (isRegister && !agreedToTerms) {
-      setError('请先阅读并同意用户协议')
+      setFieldError('请先阅读并同意用户协议', 'terms')
       return
     }
 
@@ -121,11 +128,15 @@ export default function LoginPage() {
       const res = await api.post<TokenResponse>(endpoint, body)
       setToken(res.access_token)
       setCurrentUser(res.user)
+      if (isRegister && securityEmail1) {
+        rememberEmail(securityEmail1)
+      }
       const isAdmin = res.user.role === 'super_admin' || res.user.role === 'admin'
       navigate({ to: isAdmin ? '/admin' : '/', replace: true })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '操作失败'
-      setError(msg)
+      // 注册时的接口错误（如用户名已存在）归到用户名字段，登录时归到密码字段
+      setFieldError(msg, isRegister ? 'username' : 'password')
     } finally {
       setLoading(false)
     }
@@ -147,65 +158,55 @@ export default function LoginPage() {
             <input
               type="text"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(e.target.value)
+                setError('')
+              }}
               required
               autoFocus
-              className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+              className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'username' ? 'border-danger' : 'border-line'}`}
               placeholder="请输入用户名"
             />
+            {error && errorField === 'username' && (
+              <p className="mt-1 text-xs text-danger">{error}</p>
+            )}
           </div>
 
           <div>
             <label className="mb-1 block text-sm font-medium text-ink">密码</label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full rounded-lg border border-line bg-bg px-3 py-2 pr-10 text-ink outline-none focus:border-primary"
-                placeholder="请输入密码"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-secondary hover:text-ink"
-                tabIndex={-1}
-              >
-                {showPassword ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                )}
-              </button>
-            </div>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setError('')
+              }}
+              required
+              className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'password' ? 'border-danger' : 'border-line'}`}
+              placeholder="请输入密码"
+            />
+            {error && errorField === 'password' && (
+              <p className="mt-1 text-xs text-danger">{error}</p>
+            )}
           </div>
 
           {isRegister && (
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">确认密码</label>
-              <div className="relative">
-                <input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className="w-full rounded-lg border border-line bg-bg px-3 py-2 pr-10 text-ink outline-none focus:border-primary"
-                  placeholder="请再次输入密码"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-secondary hover:text-ink"
-                  tabIndex={-1}
-                >
-                  {showConfirmPassword ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  )}
-                </button>
-              </div>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value)
+                  setError('')
+                }}
+                required
+                className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'confirm' ? 'border-danger' : 'border-line'}`}
+                placeholder="请再次输入密码"
+              />
+              {error && errorField === 'confirm' && (
+                <p className="mt-1 text-xs text-danger">{error}</p>
+              )}
             </div>
           )}
 
@@ -214,44 +215,46 @@ export default function LoginPage() {
               <label className="mb-1 block text-sm font-medium text-ink">
                 安全邮箱 <span className="text-danger">*</span>
               </label>
-              <input
-                type="email"
+              <EmailSuggestInput
                 value={securityEmail1}
-                onChange={(e) => setSecurityEmail1(e.target.value)}
+                onChange={setSecurityEmail1}
                 required
-                className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
                 placeholder="用于找回密码的主邮箱"
               />
               <div className="mt-2 flex gap-2">
                 <input
                   type="text"
                   value={securityEmail1Code}
-                  onChange={(e) => setSecurityEmail1Code(e.target.value)}
+                  onChange={(e) => {
+                    setSecurityEmail1Code(e.target.value)
+                    setError('')
+                  }}
                   required
                   maxLength={6}
-                  className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+                  className={`flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code1' ? 'border-danger' : 'border-line'}`}
                   placeholder="验证码"
                 />
                 <button
                   type="button"
                   disabled={countdown1 > 0 || sendingCode1 || !securityEmail1}
-                  onClick={() => handleSendCode(securityEmail1, setCountdown1, timerRef1, setSendingCode1)}
+                  onClick={() => handleSendCode(securityEmail1, setCountdown1, timerRef1, setSendingCode1, 'code1')}
                   className="whitespace-nowrap rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
                 >
                   {sendingCode1 ? '发送中…' : countdown1 > 0 ? `${countdown1}s` : '发送验证码'}
                 </button>
               </div>
+              {error && errorField === 'code1' && (
+                <p className="mt-1 text-xs text-danger">{error}</p>
+              )}
             </div>
           )}
 
           {isRegister && (
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">备用安全邮箱</label>
-              <input
-                type="email"
+              <EmailSuggestInput
                 value={securityEmail2}
-                onChange={(e) => setSecurityEmail2(e.target.value)}
-                className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+                onChange={setSecurityEmail2}
                 placeholder="可选，最多2个安全邮箱"
               />
               {securityEmail2 && (
@@ -259,48 +262,58 @@ export default function LoginPage() {
                   <input
                     type="text"
                     value={securityEmail2Code}
-                    onChange={(e) => setSecurityEmail2Code(e.target.value)}
+                    onChange={(e) => {
+                      setSecurityEmail2Code(e.target.value)
+                      setError('')
+                    }}
                     required
                     maxLength={6}
-                    className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+                    className={`flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code2' ? 'border-danger' : 'border-line'}`}
                     placeholder="验证码"
                   />
                   <button
                     type="button"
                     disabled={countdown2 > 0 || sendingCode2 || !securityEmail2}
-                    onClick={() => handleSendCode(securityEmail2, setCountdown2, timerRef2, setSendingCode2)}
+                    onClick={() => handleSendCode(securityEmail2, setCountdown2, timerRef2, setSendingCode2, 'code2')}
                     className="whitespace-nowrap rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
                   >
                     {sendingCode2 ? '发送中…' : countdown2 > 0 ? `${countdown2}s` : '发送验证码'}
                   </button>
                 </div>
               )}
+              {error && errorField === 'code2' && (
+                <p className="mt-1 text-xs text-danger">{error}</p>
+              )}
             </div>
           )}
 
-          {error && (
-            <div className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>
-          )}
-
           {isRegister && (
-            <label className="flex items-start gap-2 text-sm text-ink-secondary">
-              <input
-                type="checkbox"
-                checked={agreedToTerms}
-                onChange={(e) => setAgreedToTerms(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-line"
-              />
-              <span>
-                我已阅读并同意
-                <button
-                  type="button"
-                  onClick={() => setShowTerms(true)}
-                  className="text-primary hover:underline"
-                >
-                  《用户协议》
-                </button>
-              </span>
-            </label>
+            <div>
+              <label className="flex items-start gap-2 text-sm text-ink-secondary">
+                <input
+                  type="checkbox"
+                  checked={agreedToTerms}
+                  onChange={(e) => {
+                    setAgreedToTerms(e.target.checked)
+                    setError('')
+                  }}
+                  className="mt-0.5 h-4 w-4 rounded border-line"
+                />
+                <span>
+                  我已阅读并同意
+                  <button
+                    type="button"
+                    onClick={() => setShowTerms(true)}
+                    className="text-primary hover:underline"
+                  >
+                    《用户协议》
+                  </button>
+                </span>
+              </label>
+              {error && errorField === 'terms' && (
+                <p className="mt-1 text-xs text-danger">{error}</p>
+              )}
+            </div>
           )}
 
           <button
