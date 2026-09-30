@@ -1,12 +1,11 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation } from '@tanstack/react-query'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { getClientId } from '../lib/client'
 import { useAppStore } from '../store/appStore'
-import { getCurrentUser, clearToken } from '../lib/auth'
+import { getCurrentUser, clearToken, isAdmin } from '../lib/auth'
 import { syncEngine } from '../lib/sync-engine'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import ConflictResolutionPanel from '../components/ConflictResolutionPanel'
@@ -19,7 +18,7 @@ import {
   useDeleteAccount,
 } from '../hooks/useQueries'
 import { sendSecurityEmailCode, changePassword } from '../lib/api-client'
-import type { ProfileResponse, SecurityEmailItem } from '../types'
+import type { SecurityEmailItem } from '../types'
 
 const OPERATOR_KEY = 'gr_operator_name'
 
@@ -31,8 +30,17 @@ function saveOperatorName(name: string) {
   localStorage.setItem(OPERATOR_KEY, name)
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: '超级管理员',
+  admin: '系统管理员',
+  user: '一般用户',
+}
+
+function roleLabel(role: string | undefined): string {
+  return (role && ROLE_LABELS[role]) || '未知角色'
+}
+
 export default function SettingsPage() {
-  const clientId = getClientId()
   const navigate = useNavigate()
   const { toast, showToast } = useToast()
   const currentUser = getCurrentUser()
@@ -47,6 +55,33 @@ export default function SettingsPage() {
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
+
+  const [nickname, setNickname] = useState(profile?.nickname ?? '')
+  const [autoLockMinutes, setAutoLockMinutes] = useState(String(profile?.auto_lock_minutes ?? 30))
+
+  useEffect(() => {
+    if (profile) {
+      setNickname(profile.nickname ?? '')
+      setAutoLockMinutes(String(profile.auto_lock_minutes ?? 30))
+    }
+  }, [profile])
+
+  async function handleSaveProfile() {
+    const minutes = parseInt(autoLockMinutes)
+    if (isNaN(minutes) || minutes < 1) {
+      showToast('锁定时间无效')
+      return
+    }
+    try {
+      await updateProfile.mutateAsync({
+        nickname: nickname.trim() || undefined,
+        auto_lock_minutes: minutes,
+      })
+      showToast('资料已保存')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '保存失败')
+    }
+  }
 
   useEffect(() => {
     const saved = loadOperatorName()
@@ -77,22 +112,41 @@ export default function SettingsPage() {
   return (
     <PageScaffold title="系统设置" description="终端信息、账户安全与系统管理">
       <div className="mx-auto flex max-w-[36rem] flex-col gap-5">
-        {/* 本终端信息 */}
+        {/* 管理后台入口（仅管理员可见） */}
+        {isAdmin() && (
+          <Link
+            to="/admin"
+            className="flex items-center justify-between rounded-card bg-card p-6 shadow-card transition-colors hover:bg-primary/5"
+          >
+            <div>
+              <h2 className="text-section-title">🛠️ 管理后台</h2>
+              <p className="mt-1 text-sm text-ink-secondary">
+                用户管理、系统配置、审计日志、公告与回收站
+              </p>
+            </div>
+            <span className="text-2xl text-primary">→</span>
+          </Link>
+        )}
+
+        {/* 当前用户 */}
         <section className="rounded-card bg-card p-6 shadow-card">
-          <h2 className="text-section-title">🖥️ 本终端信息</h2>
+          <h2 className="text-section-title">👤 当前用户</h2>
           <p className="mt-1 text-sm text-ink-secondary">
-            每台设备拥有独立终端标识，多客户端收礼时用于区分记账来源。
+            登录账户信息与本机个人设置。
           </p>
           <div className="mt-4 flex flex-col gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">终端标识</span>
-              <input
-                value={clientId}
-                readOnly
-                className="h-11 rounded-btn border border-line bg-bg px-4 text-sm font-mono text-ink-secondary outline-none"
-              />
-              <span className="text-xs text-ink-secondary">自动分配，不可修改</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-ink">用户 ID</span>
+              <span className="text-sm font-mono text-ink-secondary">{currentUser?.id ?? '-'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-ink">用户名</span>
+              <span className="text-sm text-ink-secondary">{currentUser?.username ?? '-'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-ink">角色</span>
+              <span className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">{roleLabel(currentUser?.role)}</span>
+            </div>
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">记账员姓名 <span className="text-danger">*</span></span>
               <input
@@ -103,6 +157,33 @@ export default function SettingsPage() {
               />
               <span className="text-xs text-ink-secondary">收礼时自动记录为操作人</span>
             </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-ink">昵称</span>
+              <input
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="选填"
+                className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-ink">自动锁定时间（分钟）</span>
+              <input
+                type="number"
+                value={autoLockMinutes}
+                onChange={(e) => setAutoLockMinutes(e.target.value)}
+                min="1"
+                className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+              />
+              <span className="text-xs text-ink-secondary">无操作超过此时间后自动锁定</span>
+            </label>
+            <button
+              onClick={handleSaveProfile}
+              disabled={updateProfile.isPending}
+              className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
+            >
+              {updateProfile.isPending ? '保存中…' : '保存资料'}
+            </button>
           </div>
         </section>
 
@@ -136,16 +217,6 @@ export default function SettingsPage() {
         <section className="rounded-card bg-card p-6 shadow-card">
           <h2 className="text-section-title">🔐 账户安全</h2>
           <ChangePasswordSection showToast={showToast} />
-        </section>
-
-        {/* 个人资料 */}
-        <section className="rounded-card bg-card p-6 shadow-card">
-          <h2 className="text-section-title">👤 个人资料</h2>
-          <ProfileSection
-            profile={profile}
-            updateProfile={updateProfile}
-            showToast={showToast}
-          />
         </section>
 
         {/* 安全邮箱 */}
@@ -205,7 +276,6 @@ export default function SettingsPage() {
             <p><span className="font-medium text-ink">随礼记账本</span> v1.0.0</p>
             <p>数据存储：服务端 PostgreSQL（支持多终端协作）</p>
             <p>技术栈：React + FastAPI + PostgreSQL</p>
-            <p className="text-xs">当前登录：{currentUser?.username}（{currentUser?.role}）</p>
           </div>
         </section>
       </div>
@@ -239,10 +309,11 @@ export default function SettingsPage() {
   )
 }
 
-function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void }) {
+export function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void }) {
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [oldPasswordError, setOldPasswordError] = useState('')
 
   const mutation = useMutation({
     mutationFn: changePassword,
@@ -251,9 +322,16 @@ function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void
       setOldPassword('')
       setNewPassword('')
       setConfirmPassword('')
+      setOldPasswordError('')
     },
     onError(err: Error) {
-      showToast(err.message || '修改失败')
+      const message = err.message || '修改失败'
+      // 当前密码错误：在输入框下方显示红色提示，其他错误仍用 Toast
+      if (message.includes('原密码') || message.includes('当前密码')) {
+        setOldPasswordError(message)
+      } else {
+        showToast(message)
+      }
     },
   })
 
@@ -269,11 +347,17 @@ function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void
         <span className="text-sm font-medium text-ink">当前密码</span>
         <input
           value={oldPassword}
-          onChange={(e) => setOldPassword(e.target.value)}
+          onChange={(e) => {
+            setOldPassword(e.target.value)
+            setOldPasswordError('')
+          }}
           type="password"
           placeholder="输入当前密码"
-          className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+          className={`h-11 rounded-btn border px-4 text-base outline-none focus:border-primary ${oldPasswordError ? 'border-danger' : 'border-line'}`}
         />
+        {oldPasswordError && (
+          <span className="text-xs text-danger">{oldPasswordError}</span>
+        )}
       </label>
       <label className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-ink">新密码</span>
@@ -301,75 +385,6 @@ function ChangePasswordSection({ showToast }: { showToast: (msg: string) => void
         className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
       >
         {mutation.isPending ? '提交中…' : '修改密码'}
-      </button>
-    </div>
-  )
-}
-
-function ProfileSection({
-  profile,
-  updateProfile,
-  showToast,
-}: {
-  profile: ProfileResponse | undefined
-  updateProfile: ReturnType<typeof useUpdateProfile>
-  showToast: (msg: string) => void
-}) {
-  const [nickname, setNickname] = useState(profile?.nickname ?? '')
-  const [autoLockMinutes, setAutoLockMinutes] = useState(String(profile?.auto_lock_minutes ?? 30))
-
-  useEffect(() => {
-    if (profile) {
-      setNickname(profile.nickname ?? '')
-      setAutoLockMinutes(String(profile.auto_lock_minutes ?? 30))
-    }
-  }, [profile])
-
-  async function handleSave() {
-    const minutes = parseInt(autoLockMinutes)
-    if (isNaN(minutes) || minutes < 1) {
-      showToast('锁定时间无效')
-      return
-    }
-    try {
-      await updateProfile.mutateAsync({
-        nickname: nickname.trim() || undefined,
-        auto_lock_minutes: minutes,
-      })
-      showToast('资料已保存')
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : '保存失败')
-    }
-  }
-
-  return (
-    <div className="mt-4 flex flex-col gap-3">
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-ink">昵称</span>
-        <input
-          value={nickname}
-          onChange={(e) => setNickname(e.target.value)}
-          placeholder="选填"
-          className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-        />
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-ink">自动锁定时间（分钟）</span>
-        <input
-          type="number"
-          value={autoLockMinutes}
-          onChange={(e) => setAutoLockMinutes(e.target.value)}
-          min="1"
-          className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
-        />
-        <span className="text-xs text-ink-secondary">无操作超过此时间后自动锁定</span>
-      </label>
-      <button
-        onClick={handleSave}
-        disabled={updateProfile.isPending}
-        className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
-      >
-        {updateProfile.isPending ? '保存中…' : '保存资料'}
       </button>
     </div>
   )
