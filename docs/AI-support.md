@@ -27,13 +27,13 @@
 
 ### 2.1 首次使用
 
-**第一个用户（系统管理员）：**
+**第一个用户（超级管理员）：**
 1. 打开应用，点击「没有账户？立即注册」
 2. 输入用户名、密码、安全邮箱（1-2个）完成注册
-3. 第一个注册的用户自动成为系统管理员（super_admin）
+3. 第一个注册的用户自动成为超级管理员（super_admin）
 4. 进入首页，开始使用全部功能
 
-**后续用户（普通用户）：**
+**后续用户（一般用户）：**
 1. 打开应用，点击「没有账户？立即注册」
 2. 输入用户名、密码、安全邮箱完成注册
 3. 注册后自动成为普通用户（user），可独立使用全部记账功能
@@ -671,6 +671,7 @@ GiftRegistry/
 - 所有金额以"分"（Integer）存储，前端展示转换为"元"
 - Ruff 统一 Python 代码格式（替代 flake8/black/isort）
 - 包管理使用 uv，不使用 pip
+- **时间存储约定**：所有 DateTime 字段以无时区 UTC 入库（`app.core.time.utcnow`）。凡是按"某一天"过滤/聚合的接口，必须先把本地日期换算成 UTC 时间范围再查询（参考 `payment_accounts.received_today` 的写法），禁止直接用本地 `datetime.combine` 与 UTC 时间比较，否则跨时区/午夜边界会漏数
 
 ### 9.3 通用规范
 
@@ -685,7 +686,7 @@ GiftRegistry/
 
 | 表名 | 用途 | 关键字段 |
 | ------ | ------ | ---------- |
-| users | 用户认证 | username, password_hash(Argon2), role |
+| users | 用户认证 | id(年份+6位流水号，如 2026000001), username, password_hash(Argon2), role |
 | person | 人员库 | name, nickname, phone, aliases(JSON), relation_tag, is_private, sync_version |
 | guestbook | 礼簿 | name, event_type, event_date, status(active/closing/archived) |
 | gb_record | 礼簿收礼记录 | guestbook_id, guest_name, amount(分), payment_method, check_status, uuid, is_private, sync_version |
@@ -705,12 +706,15 @@ GiftRegistry/
 - **UUID 防重复**：每条 gb_record 有全局唯一 uuid 字段，防止多客户端重复写入。
 - **同步字段**：daily_record、gb_record、person 表均含 is_private（隐私标记）和 sync_version（增量同步版本号）。
 - **数据隔离**：所有业务表含 owner_id，API 层通过 JWT 中的 user_id 自动过滤。
+- **时间存储**：所有 DateTime 字段以无时区 UTC 入库；按天统计类查询必须把本地日期换算为 UTC 范围（`received-today` 曾因此出现午夜漏数的线上 bug，回归测试见 `test_received_today_boundary_uses_local_date`）。
+- **用户 ID**：格式为创建年份（4 位）+ 6 位流水号（如 2026000001），由 `app.core.user_id.generate_user_id` 生成；流水号按年递增，并发冲突自动重试。
+- **角色体系**：仅三种——一般用户(user)、系统管理员(admin)、超级管理员(super_admin)。注册用户一律为一般用户；系统首个注册用户自动成为超级管理员；系统管理员由超级管理员通过管理后台"授权/直接创建"产生，超级管理员账户受保护（不可被改角色、禁用或删除）。
 
 ## 11. API 结构
 
 ### 11.1 认证
 
-- POST /api/auth/register — 用户注册（第一个用户自动成为 super_admin，后续用户为普通 user）
+- POST /api/auth/register — 用户注册（第一个用户自动成为 super_admin，后续用户均为一般用户 user）
 - POST /api/auth/login — 用户登录，返回 JWT
 - POST /api/auth/refresh — 刷新 JWT
 
