@@ -24,8 +24,8 @@ export type RelationTag = '亲戚' | '朋友' | '同事' | '同学' | '邻居' |
 /** 微信限额预警等级 */
 export type LimitLevel = 'normal' | 'warning' | 'exhausted'
 
-/** 用户角色（5 级体系） */
-export type UserRole = 'super_admin' | 'admin' | 'editor' | 'viewer' | 'auditor'
+/** 用户角色（3 级体系：一般用户 / 系统管理员 / 超级管理员） */
+export type UserRole = 'super_admin' | 'admin' | 'user'
 
 /** 操作日志动作类型 */
 export type ActionType =

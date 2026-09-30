@@ -28,7 +28,7 @@ describe('auth - Token 管理', () => {
 
   it('clearToken 清除 token 和用户信息', () => {
     setToken('test-token')
-    setCurrentUser({ id: 1, username: 'test', role: 'viewer' })
+    setCurrentUser({ id: 1, username: 'test', role: 'user' })
 
     clearToken()
 
@@ -60,7 +60,7 @@ describe('auth - 用户信息管理', () => {
     const user: AuthUser = {
       id: 1,
       username: 'testuser',
-      role: 'viewer',
+      role: 'user',
       email: 'test@example.com',
     }
 
@@ -105,7 +105,7 @@ describe('auth - 角色检查', () => {
   })
 
   it('isAdmin 对普通 user 返回 false', () => {
-    setCurrentUser({ id: 3, username: 'viewer', role: 'viewer' })
+    setCurrentUser({ id: 3, username: 'user1', role: 'user' })
     expect(isAdmin()).toBe(false)
   })
 
@@ -114,9 +114,9 @@ describe('auth - 角色检查', () => {
   })
 
   it('hasRole 检查单个角色', () => {
-    setCurrentUser({ id: 1, username: 'editor', role: 'editor' })
+    setCurrentUser({ id: 1, username: 'user1', role: 'user' })
 
-    expect(hasRole('editor')).toBe(true)
+    expect(hasRole('user')).toBe(true)
     expect(hasRole('admin')).toBe(false)
   })
 
@@ -124,17 +124,17 @@ describe('auth - 角色检查', () => {
     setCurrentUser({ id: 1, username: 'admin', role: 'admin' })
 
     expect(hasRole('super_admin', 'admin')).toBe(true)
-    expect(hasRole('viewer', 'editor')).toBe(false)
+    expect(hasRole('super_admin', 'user')).toBe(false)
   })
 
   it('hasRole 对无用户返回 false', () => {
-    expect(hasRole('viewer')).toBe(false)
+    expect(hasRole('user')).toBe(false)
   })
 })
 
 describe('auth - 用户角色类型', () => {
   it('支持所有定义的角色类型', () => {
-    const roles: AuthUser['role'][] = ['super_admin', 'admin', 'editor', 'viewer', 'auditor']
+    const roles: AuthUser['role'][] = ['super_admin', 'admin', 'user']
 
     roles.forEach(role => {
       const user: AuthUser = { id: 1, username: 'test', role }

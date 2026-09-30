@@ -2,7 +2,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-RoleType = Literal["super_admin", "admin", "user", "family_member", "collaborator"]
+# 角色体系：一般用户(user) / 系统管理员(admin) / 超级管理员(super_admin)
+# 超级管理员仅由系统首个注册用户产生，不通过接口授予
+RoleType = Literal["super_admin", "admin", "user"]
 UserStatus = Literal["active", "disabled", "deactivated"]
 SecurityMode = Literal["normal", "enhanced"]
 
@@ -48,6 +50,10 @@ class ChangePasswordRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     email: str
+
+
+class PasswordResetEmailHintRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=50)
 
 
 class PasswordResetConfirm(BaseModel):

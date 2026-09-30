@@ -1,7 +1,8 @@
 const TOKEN_KEY = 'gr.access_token'
 const USER_KEY = 'gr.current_user'
 
-export type UserRole = 'super_admin' | 'admin' | 'editor' | 'viewer' | 'auditor'
+// 角色体系：一般用户(user) / 系统管理员(admin) / 超级管理员(super_admin)
+export type UserRole = 'super_admin' | 'admin' | 'user'
 
 export interface AuthUser {
   id: number

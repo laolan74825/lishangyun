@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 from app.core.time import utcnow
+from app.core.user_id import add_user_with_generated_id
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -183,7 +184,7 @@ async def import_data(
                 role=admin.get("role", "super_admin"),
                 email=admin.get("email"),
             )
-            db.add(user)
+            await add_user_with_generated_id(db, user)
 
     await db.commit()
 

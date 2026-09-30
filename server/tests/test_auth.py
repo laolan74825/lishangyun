@@ -30,6 +30,19 @@ async def _seed_email_code(email: str, code: str = "123456") -> None:
 
 
 class TestRegister:
+    async def test_new_user_id_uses_year_seq_format(self, client):
+        await _seed_email_code("fmt@test.com")
+        resp = client.post("/api/auth/register", json={
+            "username": "fmtuser",
+            "password": "password123",
+            "security_email_1": "fmt@test.com",
+            "security_email_1_code": "123456",
+        })
+        assert resp.status_code == 200
+        uid = resp.json()["user"]["id"]
+        year = utcnow().year
+        assert year * 1_000_000 < uid < (year + 1) * 1_000_000
+
     async def test_first_user_becomes_super_admin(self, client):
         await _seed_email_code("admin@test.com")
         resp = client.post("/api/auth/register", json={
@@ -337,3 +350,63 @@ class TestSendVerificationCode:
         })
         assert resp.status_code == 400
         assert "无效或已过期" in resp.json()["detail"]
+
+
+class TestAdminRoleRules:
+    """角色体系：一般用户(user) / 系统管理员(admin) / 超级管理员(super_admin)。"""
+
+    async def test_super_admin_can_grant_admin_role(self, client, admin_headers, normal_user):
+        resp = client.put(f"/api/admin/users/{normal_user.id}", json={"role": "admin"}, headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp = client.get("/api/admin/users", headers=admin_headers)
+        roles = {u["username"]: u["role"] for u in resp.json()["items"]}
+        assert roles["user1"] == "admin"
+
+    async def test_admin_cannot_grant_role(self, client, db_session, normal_user, user_headers):
+        from tests.conftest import _make_user, _auth_headers
+        sys_admin = await _make_user(db_session, username="sysadmin", role="admin")
+        headers = _auth_headers(sys_admin)
+
+        resp = client.put(f"/api/admin/users/{normal_user.id}", json={"role": "admin"}, headers=headers)
+        assert resp.status_code == 403
+
+    async def test_admin_cannot_create_admin(self, client, db_session):
+        from tests.conftest import _make_user, _auth_headers
+        sys_admin = await _make_user(db_session, username="sysadmin2", role="admin")
+        headers = _auth_headers(sys_admin)
+
+        resp = client.post("/api/admin/users", json={
+            "username": "anotheradmin",
+            "password": "password123",
+            "role": "admin",
+        }, headers=headers)
+        assert resp.status_code == 403
+
+    async def test_super_admin_can_create_admin_directly(self, client, admin_headers):
+        resp = client.post("/api/admin/users", json={
+            "username": "directadmin",
+            "password": "password123",
+            "role": "admin",
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+        assert resp.json()["role"] == "admin"
+
+    async def test_super_admin_account_is_protected(self, client, admin_headers, super_admin):
+        # 不能调整超级管理员的角色
+        resp = client.put(f"/api/admin/users/{super_admin.id}", json={"role": "user"}, headers=admin_headers)
+        assert resp.status_code == 400
+        # 不能禁用超级管理员
+        resp = client.put(f"/api/admin/users/{super_admin.id}", json={"is_active": False}, headers=admin_headers)
+        assert resp.status_code == 400
+        # 不能删除超级管理员
+        resp = client.delete(f"/api/admin/users/{super_admin.id}", headers=admin_headers)
+        assert resp.status_code == 400
+
+    async def test_legacy_role_values_rejected(self, client, admin_headers):
+        resp = client.post("/api/admin/users", json={
+            "username": "legacyuser",
+            "password": "password123",
+            "role": "collaborator",
+        }, headers=admin_headers)
+        assert resp.status_code == 422

@@ -6,14 +6,13 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import { useAdminUsers } from '../../hooks/useQueries'
 import { queryKeys } from '../../hooks/queryKeys'
 import * as api from '../../lib/api-client'
+import { getCurrentUser } from '../../lib/auth'
 import type { AdminUser, AdminUserCreate } from '../../types'
 
 const roleLabels: Record<string, string> = {
   super_admin: '超级管理员',
-  admin: '管理员',
-  user: '普通用户',
-  family_member: '家庭成员',
-  collaborator: '协作者',
+  admin: '系统管理员',
+  user: '一般用户',
 }
 
 interface CreateFormState {
@@ -82,6 +81,19 @@ export default function AdminUsersPage() {
     },
     onError: (err: Error) => {
       showToast(err.message || '删除失败')
+    },
+  })
+
+  // 超级管理员授权/收回系统管理员
+  const roleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: number; role: string }) =>
+      api.updateAdminUser(id, { role }),
+    onSuccess: (_, { role }) => {
+      showToast(role === 'admin' ? '已授权为系统管理员' : '已降为一般用户')
+      invalidateUsers()
+    },
+    onError: (err: Error) => {
+      showToast(err.message || '操作失败')
     },
   })
 
@@ -177,11 +189,15 @@ export default function AdminUsersPage() {
                   onChange={(e) => updateForm('role', e.target.value)}
                   className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
                 >
-                  <option value="user">普通用户</option>
-                  <option value="admin">管理员</option>
-                  <option value="collaborator">协作者</option>
-                  <option value="family_member">家庭成员</option>
+                  <option value="user">一般用户</option>
+                  {/* 只有超级管理员可以直接创建系统管理员 */}
+                  {getCurrentUser()?.role === 'super_admin' && (
+                    <option value="admin">系统管理员</option>
+                  )}
                 </select>
+                {getCurrentUser()?.role !== 'super_admin' && (
+                  <span className="text-xs text-ink-secondary">创建系统管理员需要超级管理员权限</span>
+                )}
               </label>
             </div>
             <div className="mt-4 flex gap-3">
@@ -245,6 +261,21 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex gap-2">
+                          {/* 仅超级管理员可授权/收回系统管理员，且不能操作超级管理员 */}
+                          {getCurrentUser()?.role === 'super_admin' && u.role !== 'super_admin' && (
+                            <button
+                              onClick={() =>
+                                roleMutation.mutate({
+                                  id: u.id,
+                                  role: u.role === 'admin' ? 'user' : 'admin',
+                                })
+                              }
+                              disabled={roleMutation.isPending}
+                              className="rounded-md border border-line px-2 py-1 text-xs text-ink-secondary hover:border-primary disabled:opacity-50"
+                            >
+                              {u.role === 'admin' ? '降为一般用户' : '设为系统管理员'}
+                            </button>
+                          )}
                           <button
                             onClick={() => setTogglingUser(u)}
                             className="rounded-md border border-line px-2 py-1 text-xs text-ink-secondary hover:border-primary"

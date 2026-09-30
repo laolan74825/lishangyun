@@ -13,6 +13,7 @@ from app.core.email_service import send_reset_email, send_verification_email
 from app.core.rate_limit import login_attempts
 from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
 from app.core.time import utcnow
+from app.core.user_id import add_user_with_generated_id
 from app.models.email_verification_code import EmailVerificationCode
 from app.models.reset_code import ResetCode
 from app.models.security_email import SecurityEmail
@@ -172,8 +173,7 @@ async def register(body: RegisterRequest, db: DbSession):
         nickname=body.nickname,
         is_active=True,
     )
-    db.add(user)
-    await db.flush()
+    await add_user_with_generated_id(db, user)
 
     security_email_1 = SecurityEmail(
         user_id=user.id,

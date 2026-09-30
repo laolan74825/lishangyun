@@ -1,5 +1,6 @@
 from datetime import datetime
 from app.core.time import utcnow
+from app.core.user_id import add_user_with_generated_id
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -19,13 +20,15 @@ from app.schemas.common import PaginatedResponse
 class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6, max_length=128)
-    role: str = Field("user", pattern="^(super_admin|admin|user|family_member|collaborator)$")
+    # 只能创建一般用户或系统管理员；系统管理员仅超级管理员可创建
+    role: str = Field("user", pattern="^(admin|user)$")
     nickname: str | None = Field(None, max_length=50)
     email: str | None = Field(None, max_length=100)
 
 
 class UpdateUserRequest(BaseModel):
-    role: str | None = Field(None, pattern="^(super_admin|admin|user|family_member|collaborator)$")
+    # 授权/降级只能在 一般用户 与 系统管理员 之间进行，仅超级管理员可操作
+    role: str | None = Field(None, pattern="^(admin|user)$")
     is_active: bool | None = None
     email: str | None = None
     nickname: str | None = None
@@ -60,12 +63,14 @@ async def list_users(
 async def create_user(
     body: CreateUserRequest = Body(...),
     db: DbSession = ...,
-    _: AdminUser = ...,
+    current_user: AdminUser = ...,
 ):
     result = await db.execute(select(User).where(User.username == body.username))
     existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="用户名已存在")
+    if body.role == "admin" and current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="只有超级管理员可以创建系统管理员")
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
@@ -73,7 +78,7 @@ async def create_user(
         nickname=body.nickname,
         email=body.email,
     )
-    db.add(user)
+    await add_user_with_generated_id(db, user)
     await db.commit()
     await db.refresh(user)
     return UserInfo.model_validate(user)
@@ -84,13 +89,19 @@ async def update_user(
     user_id: int,
     body: UpdateUserRequest = Body(...),
     db: DbSession = ...,
-    _: AdminUser = ...,
+    current_user: AdminUser = ...,
 ):
     result = await db.execute(select(User).where(User.id == user_id, User.is_deleted == False))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
+    # 超级管理员账户受保护：不允许被禁用，也不允许被调整角色
+    if user.role == "super_admin" and (body.role is not None or body.is_active is not None):
+        raise HTTPException(status_code=400, detail="不能修改超级管理员的角色或状态")
     if body.role is not None:
+        # 给一般用户授权为系统管理员 / 收回授权，仅超级管理员可操作
+        if current_user.role != "super_admin":
+            raise HTTPException(status_code=403, detail="只有超级管理员可以调整用户角色")
         user.role = body.role
     if body.is_active is not None:
         user.is_active = body.is_active
@@ -116,6 +127,8 @@ async def delete_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if user.role == "super_admin":
+        raise HTTPException(status_code=400, detail="不能删除超级管理员")
     user.is_deleted = True
     user.deleted_at = utcnow()
     user.is_active = False
