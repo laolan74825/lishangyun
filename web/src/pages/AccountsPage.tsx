@@ -102,16 +102,16 @@ export default function AccountsPage() {
     }
   }
 
-  // 加载每个激活微信账户的今日剩余额度
-  // 仅默认账户需要查询（非默认账户不参与收款，无需关注额度）
+  // 加载每个未停用微信账户的今日剩余额度
+  // 非默认但未停用的账户也可收款，需要同样关注额度
   useEffect(() => {
-    const activeWechatAccounts = accounts.filter((a) => a.type === 'wechat' && a.is_active)
-    if (activeWechatAccounts.length === 0) return
+    const enabledWechatAccounts = accounts.filter((a) => a.type === 'wechat' && !a.is_disabled)
+    if (enabledWechatAccounts.length === 0) return
     const today = new Date().toISOString().slice(0, 10)  // YYYY-MM-DD 格式
     const map = new Map<number, number>()
-    // 并行查询每个激活微信账户的今日已收款金额
+    // 并行查询每个未停用微信账户的今日已收款金额
     Promise.all(
-      activeWechatAccounts.map(async (a) => {
+      enabledWechatAccounts.map(async (a) => {
         const remaining = await wechatRemainingLimit(a, today)
         map.set(a.id!, remaining)
       })
@@ -217,8 +217,8 @@ export default function AccountsPage() {
         }
       )
     } else {
-      // 新建模式
-      createMutation.mutate(payload, {
+      // 新建模式：新建账户均为启用状态（编辑分支不发送 is_disabled，避免误启用已停用的账户）
+      createMutation.mutate({ ...payload, is_disabled: false }, {
         onSuccess: async () => {
           // 同上，后端已自动处理，这里作为防御性编程
           // 如果新建账户为激活状态，停用同类型的所有激活账户
@@ -280,30 +280,51 @@ export default function AccountsPage() {
     }
   }
 
+  // 停用/启用账户
+  // 停用后账户在所有业务页面不可选择；停用默认账户会自动取消其默认身份（后端处理）
+  const handleToggleDisabled = async (account: PaymentAccount) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: account.id!,
+        changes: { ...account, is_disabled: !account.is_disabled },
+      })
+      showToast(account.is_disabled ? '账户已启用' : '账户已停用')
+    } catch {
+      showToast('操作失败')
+    }
+  }
+
   // 账户卡片组件：显示单个账户的信息和操作按钮
   const AccountCard = ({ a }: { a: PaymentAccount }) => (
-    <div className={`flex flex-col gap-3 rounded-card p-5 shadow-card ${a.is_active ? 'bg-card' : 'bg-gray-50'}`}>
+    <div className={`flex flex-col gap-3 rounded-card p-5 shadow-card ${a.is_disabled ? 'bg-gray-50' : 'bg-card'}`}>
       {/* 账户名称和操作按钮 */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
           {/* 账户类型图标：💵 收银员，💚 微信 */}
           <span className="text-2xl">{a.type === 'cash' ? '💵' : '💚'}</span>
           <div>
-            <h3 className={`font-bold ${a.is_active ? 'text-ink' : 'text-ink-secondary'}`}>{a.name}</h3>
+            <h3 className={`font-bold ${a.is_disabled ? 'text-ink-secondary' : 'text-ink'}`}>{a.name}</h3>
             <p className="text-xs text-ink-secondary">
               {a.type === 'cash' ? '收银员' : '微信账户'}
-              {!a.is_active && ' · 已停用'}
+              {a.is_active && ' · 默认'}
+              {a.is_disabled && ' · 已停用'}
             </p>
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {/* 编辑和删除按钮 */}
+          {/* 编辑、停用/启用和删除按钮 */}
           <div className="flex gap-1">
             <button
               onClick={() => openEdit(a)}
               className="rounded-btn px-3 py-1.5 text-xs font-medium text-info hover:bg-info/10"
             >
               编辑
+            </button>
+            <button
+              onClick={() => handleToggleDisabled(a)}
+              className="rounded-btn px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-bg"
+            >
+              {a.is_disabled ? '启用' : '停用'}
             </button>
             <button
               onClick={() => setDeletingAccountId(a.id!)}
@@ -313,12 +334,13 @@ export default function AccountsPage() {
             </button>
           </div>
           {/* 设为默认账户的单选按钮 */}
-          {/* 同一类型的账户共享一个 name，确保只能选中一个 */}
-          <label className="flex items-center gap-1.5 cursor-pointer">
+          {/* 同一类型的账户共享一个 name，确保只能选中一个；停用账户不可设为默认 */}
+          <label className={`flex items-center gap-1.5 ${a.is_disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
             <input
               type="radio"
               name={`account-${a.type}`}  // 按类型分组
               checked={a.is_active}  // 是否当前激活
+              disabled={a.is_disabled}  // 停用账户不能设为默认
               onChange={() => handleSetActive(a.id!)}
               className="h-4 w-4 accent-primary"
             />
@@ -336,8 +358,8 @@ export default function AccountsPage() {
               <span className="text-ink-secondary">每日限额：</span>
               <span className="font-medium text-ink">¥{(a.daily_limit / 100).toFixed(0)}</span>
             </div>
-            {/* 剩余额度：仅默认账户显示（非默认账户不参与收款，无需关注额度） */}
-            {a.is_active && remainingMap.has(a.id!) && (
+            {/* 剩余额度：对所有未停用的微信账户显示（非默认账户也可收款，需要关注额度） */}
+            {!a.is_disabled && remainingMap.has(a.id!) && (
               <div>
                 <span className="text-ink-secondary">剩余额度：</span>
                 {/* 剩余额度 ≤ 200元时显示红色警告 */}
@@ -361,7 +383,7 @@ export default function AccountsPage() {
 
   return (
     <PageScaffold
-      title="账户设置"
+      title="账户管理"
       description="管理系统账户和礼簿账户"
       actions={
         // 顶部操作按钮：仅在"系统账户设置"标签页显示
@@ -508,7 +530,7 @@ export default function AccountsPage() {
                               className="h-10 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
                             >
                               <option value="">系统默认</option>
-                              {cashAccounts.map((acc) => (
+                              {cashAccounts.filter((acc) => !acc.is_disabled).map((acc) => (
                                 <option key={acc.id} value={acc.id}>
                                   {acc.name}
                                 </option>
@@ -532,7 +554,7 @@ export default function AccountsPage() {
                               className="h-10 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
                             >
                               <option value="">系统默认</option>
-                              {wechatAccounts.map((acc) => (
+                              {wechatAccounts.filter((acc) => !acc.is_disabled).map((acc) => (
                                 <option key={acc.id} value={acc.id}>
                                   {acc.name}
                                 </option>

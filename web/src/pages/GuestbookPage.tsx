@@ -650,10 +650,7 @@ const eventTypes = [
 
 export function GuestbookNewPage() {
   const navigate = useNavigate()
-  const clientId = useAppStore((s) => s.clientId)
   const operatorName = useAppStore((s) => s.operatorName)
-  const defaultCashAccountId = useAppStore((s) => s.defaultCashAccountId)
-  const defaultWechatAccountId = useAppStore((s) => s.defaultWechatAccountId)
   const { toast, showToast } = useToast()
   const { data: existingGuestbooks = [] } = useAllGuestbookSummaries()
 
@@ -661,24 +658,34 @@ export function GuestbookNewPage() {
   const [eventType, setEventType] = useState('wedding')
   const [eventDate, setEventDate] = useState(dayjs().format('YYYY-MM-DD'))
   const [note, setNote] = useState('')
-  const [cashAccount, setCashAccount] = useState<number | undefined>(defaultCashAccountId)
-  const [wechatAccount, setWechatAccount] = useState<number | undefined>(defaultWechatAccountId)
+  // 收银员/微信账户默认"系统默认"（即系统当前激活的账户），可在下拉框中改选其他已有账户
+  const [cashAccount, setCashAccount] = useState<number | undefined>(undefined)
+  const [wechatAccount, setWechatAccount] = useState<number | undefined>(undefined)
   const [duplicateWarning, setDuplicateWarning] = useState(false)
 
   const createMutation = useCreateGuestbook()
   const saveTerminal = useSaveTerminalSettings()
-  const { data: cashAccounts = [] } = usePaymentAccounts({ type: 'cash' })
-  const { data: wechatAccounts = [] } = usePaymentAccounts({ type: 'wechat' })
+  const { data: cashAccounts = [], isPending: isCashLoading } = usePaymentAccounts({ type: 'cash' })
+  const { data: wechatAccounts = [], isPending: isWechatLoading } = usePaymentAccounts({ type: 'wechat' })
 
-  const activeCash = (cashAccounts as PaymentAccount[]).filter((a) => a.is_active)
-  const activeWechat = (wechatAccounts as PaymentAccount[]).filter((a) => a.is_active)
+  // 排除已停用账户：停用账户在所有业务页面不可选择
+  const allCash = (cashAccounts as PaymentAccount[]).filter((a) => !a.is_disabled)
+  const allWechat = (wechatAccounts as PaymentAccount[]).filter((a) => !a.is_disabled)
+
+  // 账户加载完成后，若系统中既无收银员也无微信账户，提示先去账户管理设置
+  const isAccountsLoading = isCashLoading || isWechatLoading
+  const noAccounts = !isAccountsLoading && allCash.length === 0 && allWechat.length === 0
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
     if (!name.trim()) { showToast('请填写礼簿名称'); return }
     if (!eventDate) { showToast('请选择宴席日期'); return }
     
-    const selectedCashAccount = activeCash.find((acc) => acc.id === cashAccount)
+    // 收银员的解析顺序：手动选择的具体账户 → 系统默认（当前激活的收银员）→ 第一个收银员账户（兜底）→ 本机操作员姓名
+    const selectedCashAccount =
+      allCash.find((acc) => acc.id === cashAccount) ??
+      allCash.find((acc) => acc.is_active) ??
+      allCash[0]
     const operatorNameValue = selectedCashAccount?.name || operatorName || ''
     if (!operatorNameValue.trim()) { showToast('请选择收银员'); return }
 
@@ -697,7 +704,9 @@ export function GuestbookNewPage() {
       })
       await saveTerminal.mutateAsync({
         guestbook_id: gbId,
-        client_id: clientId,
+        // 保存为礼簿级默认设置：收礼页和账户管理页均使用 client_id='default' 读取；
+        // 本终端如需不同账户，可在终端设置页按本机 client_id 单独覆盖
+        client_id: 'default',
         operator_name: operatorNameValue.trim(),
         default_cash_account: cashAccount,
         default_wechat_account: wechatAccount,
@@ -713,6 +722,19 @@ export function GuestbookNewPage() {
   }
 
   const isPending = createMutation.isPending || saveTerminal.isPending
+
+  // 账户信息加载中：先显示加载态，避免数据未返回时误判为"无账户"而闪现弹窗
+  if (isAccountsLoading) {
+    return (
+      <PageScaffold title="新建礼簿" description="创建新的宴请礼簿，开始现场收礼">
+        <div className="mx-auto max-w-[36rem]">
+          <div className="rounded-card bg-card p-10 text-center text-sm text-ink-secondary shadow-card">
+            正在加载账户信息…
+          </div>
+        </div>
+      </PageScaffold>
+    )
+  }
 
   return (
     <PageScaffold title="新建礼簿" description="创建新的宴请礼簿，开始现场收礼">
@@ -761,7 +783,7 @@ export function GuestbookNewPage() {
                 className="h-12 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
               >
                 <option value="">系统默认</option>
-                {activeCash.map((acc) => (
+                {allCash.map((acc) => (
                   <option key={acc.id} value={acc.id}>{acc.name}</option>
                 ))}
               </select>
@@ -775,7 +797,7 @@ export function GuestbookNewPage() {
                 className="h-12 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
               >
                 <option value="">系统默认</option>
-                {activeWechat.map((acc) => (
+                {allWechat.map((acc) => (
                   <option key={acc.id} value={acc.id}>{acc.name}</option>
                 ))}
               </select>
@@ -821,6 +843,18 @@ export function GuestbookNewPage() {
         onConfirm={() => setDuplicateWarning(false)}
         onCancel={() => setDuplicateWarning(false)}
         showCancel={false}
+      />
+
+      {/* 系统未设置任何收银员/微信账户时，引导先去账户管理 */}
+      <ConfirmDialog
+        open={noAccounts}
+        title="请先设置收款账户"
+        message="系统尚未设置收银员和微信账户。创建礼簿前，请先到「账户管理」添加至少一个收款账户。"
+        variant="info"
+        confirmLabel="去账户管理"
+        cancelLabel="返回礼簿列表"
+        onConfirm={() => navigate({ to: '/accounts' })}
+        onCancel={() => navigate({ to: '/guestbooks' })}
       />
 
       <Toast message={toast} onClose={() => showToast(null)} />

@@ -5,7 +5,7 @@ import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import NameAutocomplete from '../components/NameAutocomplete'
 import type { RecordType } from '../types'
-import { useActivePaymentAccounts, useCreateDailyRecord } from '../hooks/useQueries'
+import { usePaymentAccounts, useCreateDailyRecord } from '../hooks/useQueries'
 
 const eventTypes = [
   { value: 'wedding', label: '婚礼' },
@@ -33,7 +33,9 @@ export default function RecordFormPage() {
   const [isPrivate, setIsPrivate] = useState(false)
   const { toast, showToast } = useToast()
 
-  const { data: accounts = [] } = useActivePaymentAccounts()
+  // 使用全部账户并排除停用账户：非默认账户也可选，停用账户不可选
+  const { data: allAccounts = [] } = usePaymentAccounts()
+  const accounts = useMemo(() => allAccounts.filter((a) => !a.is_disabled), [allAccounts])
   const createMutation = useCreateDailyRecord()
 
   const filteredAccounts = useMemo(() => {

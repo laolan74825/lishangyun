@@ -82,7 +82,7 @@ export default function CollectPage() {
     if (!guestbookId || isNaN(guestbookId)) return
     const lm = new Map<number, { remainingFen: number; level: ReturnType<typeof limitLevel> }>()
     for (const a of allAccounts) {
-      if (a.type !== 'wechat' || !a.is_active) continue
+      if (a.type !== 'wechat' || a.is_disabled) continue
       const received = await wechatReceivedToday(a.id!, today, guestbookId)
       const remainingFen = a.daily_limit - received
       lm.set(a.id!, { remainingFen, level: limitLevel(remainingFen) })
@@ -140,7 +140,8 @@ export default function CollectPage() {
       setAccountId('')
       return
     }
-    const typeAccounts = allAccounts.filter((a) => a.type === type)
+    // 仅从未停用的账户中选择（停用账户不可收款）
+    const typeAccounts = allAccounts.filter((a) => a.type === type && !a.is_disabled)
     if (typeAccounts.length === 0) return
 
     // 1. 礼簿终端默认（礼簿账户设置中单独配置的）

@@ -7,7 +7,7 @@ const navItems = [
   { to: '/guestbooks', label: '礼簿管理' },
   { to: '/people', label: '人员管理' },
   { to: '/stats', label: '统计报表' },
-  { to: '/accounts', label: '收款账户' },
+  { to: '/accounts', label: '账户管理' },
 ]
 
 function NavLink({ to, children }: { to: string; children: React.ReactNode }) {

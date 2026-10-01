@@ -311,7 +311,7 @@ export default function DashboardPage() {
               ＋ 新建礼簿
             </Link>
             <Link to="/accounts" className="rounded-btn border border-line px-6 py-3 font-semibold text-ink">
-              系统账户设置
+              账户管理
             </Link>
             <Link to="/family" className="rounded-btn border border-line px-6 py-3 font-semibold text-ink">
               家庭协作

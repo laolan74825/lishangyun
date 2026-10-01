@@ -132,6 +132,7 @@ describe('wechatLimitCache', () => {
         type: 'wechat' as const,
         daily_limit: 200000000,
         is_active: true,
+        is_disabled: false,
         created_at: '2026-01-01',
       },
       remainingFen: 150000000,

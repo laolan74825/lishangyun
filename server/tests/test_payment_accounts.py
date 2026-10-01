@@ -174,3 +174,81 @@ class TestRolePermissions:
 
         resp = client.delete(f"/api/payment-accounts/{account_id}", headers=collab_headers)
         assert resp.status_code == 403
+
+
+class TestDisableAccount:
+    """is_disabled（停用）与 is_active（系统默认）相互独立的行为验证"""
+
+    async def test_disable_account_clears_default_flag(self, client, admin_headers, db_session):
+        """停用默认账户后，其 is_active 应被自动清除，避免'已停用但仍为默认'的歧义"""
+        account_id = _create_account(client, admin_headers).json()
+        # 新建账户默认为 is_active=True
+        resp_get = client.get(f"/api/payment-accounts/{account_id}", headers=admin_headers)
+        assert resp_get.json()["is_active"] is True
+
+        resp = client.put(f"/api/payment-accounts/{account_id}", json={"is_disabled": True}, headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp_get = client.get(f"/api/payment-accounts/{account_id}", headers=admin_headers)
+        data = resp_get.json()
+        assert data["is_disabled"] is True
+        assert data["is_active"] is False
+
+    async def test_disabled_account_cannot_be_set_default(self, client, admin_headers, db_session):
+        """已停用的账户不能设为默认账户"""
+        account_id = _create_account(client, admin_headers).json()
+        client.put(f"/api/payment-accounts/{account_id}", json={"is_disabled": True}, headers=admin_headers)
+
+        resp = client.put(f"/api/payment-accounts/{account_id}", json={"is_active": True}, headers=admin_headers)
+        assert resp.status_code == 400
+
+        # 保持停用且非默认
+        resp_get = client.get(f"/api/payment-accounts/{account_id}", headers=admin_headers)
+        data = resp_get.json()
+        assert data["is_disabled"] is True
+        assert data["is_active"] is False
+
+    async def test_enable_account_keeps_non_default(self, client, admin_headers, db_session):
+        """重新启用账户后不会自动恢复默认身份"""
+        account_id = _create_account(client, admin_headers).json()
+        client.put(f"/api/payment-accounts/{account_id}", json={"is_disabled": True}, headers=admin_headers)
+
+        resp = client.put(f"/api/payment-accounts/{account_id}", json={"is_disabled": False}, headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp_get = client.get(f"/api/payment-accounts/{account_id}", headers=admin_headers)
+        data = resp_get.json()
+        assert data["is_disabled"] is False
+        assert data["is_active"] is False
+
+    async def test_non_default_account_is_not_disabled_by_default(self, client, admin_headers, db_session):
+        """非默认账户默认不是停用状态（取消原'非默认即停用'的语义）"""
+        _create_account(client, admin_headers, name="默认账户")
+        # 显式以 is_active=False 创建备选账户
+        resp = client.post("/api/payment-accounts/", json={
+            "name": "备选账户",
+            "type": "cash",
+            "is_active": False,
+        }, headers=admin_headers)
+        second_id = resp.json()
+
+        resp_get = client.get(f"/api/payment-accounts/{second_id}", headers=admin_headers)
+        data = resp_get.json()
+        assert data["is_active"] is False
+        assert data["is_disabled"] is False
+
+    async def test_create_disabled_account_cannot_be_default(self, client, admin_headers, db_session):
+        """创建时同时指定 is_active 和 is_disabled，应强制 is_active=False"""
+        resp = client.post("/api/payment-accounts/", json={
+            "name": "停用账户",
+            "type": "cash",
+            "is_active": True,
+            "is_disabled": True,
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+        account_id = resp.json()
+
+        resp_get = client.get(f"/api/payment-accounts/{account_id}", headers=admin_headers)
+        data = resp_get.json()
+        assert data["is_disabled"] is True
+        assert data["is_active"] is False

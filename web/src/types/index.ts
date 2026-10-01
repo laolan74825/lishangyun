@@ -85,7 +85,10 @@ export interface PaymentAccount {
   identifier?: string
   daily_limit: number
   qr_code?: string
+  /** 是否系统默认账户（每种类型唯一） */
   is_active: boolean
+  /** 是否停用：停用账户在所有业务页面不可选择，仅账户管理页可重新启用 */
+  is_disabled: boolean
   is_deleted?: boolean
   deleted_at?: string
   created_at: string

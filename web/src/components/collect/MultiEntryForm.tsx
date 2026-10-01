@@ -33,7 +33,7 @@ export default function MultiEntryForm({
   onBulkPaymentMethodChange: (v: PaymentMethod | '') => void
   total: number
 }) {
-  const activeAccounts = allAccounts.filter((a) => a.is_active)
+  const activeAccounts = allAccounts.filter((a) => !a.is_disabled)
 
   return (
     <div className="mt-4 flex flex-col gap-3">

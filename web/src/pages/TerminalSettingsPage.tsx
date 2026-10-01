@@ -35,8 +35,9 @@ export default function TerminalSettingsPage() {
     }
   }, [settings, initialized])
 
-  const activeCashAccounts = (cashAccounts as PaymentAccount[]).filter((a) => a.is_active)
-  const activeWechatAccounts = (wechatAccounts as PaymentAccount[]).filter((a) => a.is_active)
+  // 排除已停用账户：非默认但未停用的账户也可选
+  const activeCashAccounts = (cashAccounts as PaymentAccount[]).filter((a) => !a.is_disabled)
+  const activeWechatAccounts = (wechatAccounts as PaymentAccount[]).filter((a) => !a.is_disabled)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -148,7 +149,7 @@ function AccountSelector({
   if (accounts.length === 0) {
     return (
       <p className="rounded-lg bg-bg px-3 py-2.5 text-sm text-ink-secondary">
-        暂无可用账户，请先在「收款账户」页面添加
+        暂无可用账户，请先在「账户管理」页面添加
       </p>
     )
   }

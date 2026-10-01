@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS payment_account (
     identifier      VARCHAR(50)                         COMMENT '微信号标识（仅微信类型时填写）',
     daily_limit     INTEGER DEFAULT 2000000000          COMMENT '每日限额金额（单位：分），默认200000万',
     qr_code         TEXT                                COMMENT '微信收款二维码图片（Base64或URL，仅微信类型）',
-    is_active       BOOLEAN DEFAULT 1                   COMMENT '是否启用：1启用 / 0禁用',
+    is_active       BOOLEAN DEFAULT 1                   COMMENT '是否系统默认：1默认 / 0非默认（每种类型唯一）',
+    is_disabled     BOOLEAN DEFAULT 0                   COMMENT '是否停用：1停用（业务页面不可选择）/ 0正常',
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP  COMMENT '创建时间',
 
     CONSTRAINT chk_payment_type CHECK (type IN ('cash', 'wechat'))
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS payment_account (
 
 CREATE INDEX IF NOT EXISTS idx_payment_type ON payment_account(type);
 CREATE INDEX IF NOT EXISTS idx_payment_active ON payment_account(is_active);
+CREATE INDEX IF NOT EXISTS idx_payment_disabled ON payment_account(is_disabled);
 
 -- ---------------------------------------------------------
 -- 3. 礼簿表（guestbook）

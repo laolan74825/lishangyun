@@ -13,6 +13,7 @@ class PaymentAccountCreate(BaseModel):
     daily_limit: int = Field(20000000, ge=0)
     qr_code: str | None = None
     is_active: bool = True
+    is_disabled: bool = False
 
 
 class PaymentAccountUpdate(BaseModel):
@@ -22,6 +23,7 @@ class PaymentAccountUpdate(BaseModel):
     daily_limit: int | None = Field(None, ge=0)
     qr_code: str | None = None
     is_active: bool | None = None
+    is_disabled: bool | None = None
 
 
 class PaymentAccountResponse(BaseModel):
@@ -33,6 +35,7 @@ class PaymentAccountResponse(BaseModel):
     daily_limit: int
     qr_code: str | None = None
     is_active: bool
+    is_disabled: bool
     is_deleted: bool
     created_at: datetime
     updated_at: datetime

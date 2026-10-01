@@ -90,7 +90,7 @@ async def create_account(
         raise HTTPException(status_code=400, detail="账户名称不能重复")
     if body.is_active:
         # 批量更新：将同类型的所有激活账户设为 is_active=False
-        # 条件：同一 owner、同一 type、当前 is_active=True、未删除
+        # 条件：同一 owner、同一 type、当前 is_active=True、未删除、未停用
         await db.execute(
             update(PaymentAccount)
             .where(
@@ -101,8 +101,10 @@ async def create_account(
             )
             .values(is_active=False, updated_at=utcnow())
         )
+    # 停用账户不能同时是默认账户：强制 is_active=False
+    is_active = body.is_active and not body.is_disabled
     # 创建新账户实例
-    account = PaymentAccount(owner_id=current_user.id, **body.model_dump())
+    account = PaymentAccount(owner_id=current_user.id, **{**body.model_dump(), "is_active": is_active})
     db.add(account)
     await db.flush()  #  flush 确保 ID 生成
     await db.commit()
@@ -143,6 +145,9 @@ async def update_account(
         if dup.scalar_one_or_none() is not None:
             raise HTTPException(status_code=400, detail="账户名称不能重复")
     if updates.get("is_active") is True:
+        # 已停用的账户不能设为默认账户
+        if account.is_disabled or updates.get("is_disabled") is True:
+            raise HTTPException(status_code=400, detail="账户已停用，不能设为默认账户")
         # 批量更新：排除当前账户自身（id != account_id）
         await db.execute(
             update(PaymentAccount)
@@ -158,6 +163,9 @@ async def update_account(
     # 应用更新到账户对象
     for k, v in updates.items():
         setattr(account, k, v)
+    # 停用账户同时取消其默认身份，避免"已停用但仍为系统默认"的歧义
+    if account.is_disabled:
+        account.is_active = False
     account.updated_at = utcnow()
     await db.commit()
     return {"message": "已更新"}
