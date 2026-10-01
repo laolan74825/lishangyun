@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react'
 import { useNavigate, Link } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { setToken, setCurrentUser, type AuthUser } from '../lib/auth'
+import { showGlobalToast } from '../lib/toast-bus'
+import { describeError, isOutageError, NETWORK_ERROR_TOAST_KEY } from '../lib/queryClient'
 import EmailSuggestInput, { rememberEmail } from '../components/EmailSuggestInput'
 
 interface TokenResponse {
@@ -45,7 +47,12 @@ export default function LoginPage() {
         setNeedsInit(true)
         setIsRegister(true)
       }
-    }).catch(() => {})
+    }).catch((err) => {
+      // 服务器不可达时必须让用户知情，不能静默（全局 Toast，含节流去重）
+      showGlobalToast(describeError(err), isOutageError(err)
+        ? { sticky: true, key: NETWORK_ERROR_TOAST_KEY }
+        : undefined)
+    })
   }, [])
 
   useEffect(() => {

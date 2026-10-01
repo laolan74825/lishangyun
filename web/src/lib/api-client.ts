@@ -29,6 +29,7 @@ import type {
   TerminalSettings,
 } from '../types'
 import { api } from './api'
+import { ApiError } from './api'
 import { getToken } from './auth'
 
 
@@ -69,7 +70,9 @@ export async function getGuestbooksPaginated(
 export async function getGuestbookById(id: number): Promise<Guestbook | undefined> {
   try {
     return await api.get<Guestbook>(`/guestbooks/${id}`)
-  } catch {
+  } catch (err) {
+    // 404 等业务错误按"不存在"处理；网络层失败必须抛出，交给全局错误提示
+    if (err instanceof ApiError && err.status === 0) throw err
     return undefined
   }
 }
@@ -402,7 +405,8 @@ export async function getPersonsPaginated(
 export async function getPersonById(id: number): Promise<Person | undefined> {
   try {
     return await api.get<Person>(`/persons/${id}`)
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 0) throw err
     return undefined
   }
 }
@@ -459,7 +463,8 @@ export async function getPaymentAccounts(type?: AccountType): Promise<PaymentAcc
 export async function getPaymentAccountById(id: number): Promise<PaymentAccount | undefined> {
   try {
     return await api.get<PaymentAccount>(`/payment-accounts/${id}`)
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 0) throw err
     return undefined
   }
 }
@@ -501,7 +506,8 @@ export async function getTerminalSettings(
     return await api.get<TerminalSettings>(
       `/terminal-settings/?guestbook_id=${guestbookId}&client_id=${encodeURIComponent(clientId)}`,
     )
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 0) throw err
     return undefined
   }
 }

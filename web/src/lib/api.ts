@@ -3,10 +3,18 @@ import { clearToken, getToken } from './auth'
 const API_BASE = '/api'
 
 export class ApiError extends Error {
+  /** status === 0 表示网络层失败（服务器不可达），而非 HTTP 错误 */
   constructor(public status: number, public detail: string) {
     super(detail)
     this.name = 'ApiError'
   }
+}
+
+export const NETWORK_ERROR_MESSAGE = '无法连接到服务器，请确认后端服务和数据库已启动'
+
+function isNetworkFailure(err: unknown): boolean {
+  // fetch 在网络失败时抛出 TypeError（如 Failed to fetch / 网络错误）
+  return err instanceof TypeError
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -19,10 +27,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+    })
+  } catch (err) {
+    if (isNetworkFailure(err)) {
+      throw new ApiError(0, NETWORK_ERROR_MESSAGE)
+    }
+    throw err
+  }
 
   if (res.status === 401) {
     let detail = res.statusText
@@ -72,7 +88,15 @@ export const api = {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
-    const res = await fetch(`${API_BASE}${path}`, { headers })
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}${path}`, { headers })
+    } catch (err) {
+      if (isNetworkFailure(err)) {
+        throw new ApiError(0, NETWORK_ERROR_MESSAGE)
+      }
+      throw err
+    }
     if (res.status === 401) {
       clearToken()
       window.location.href = '/login'
