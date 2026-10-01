@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.config import settings, validate_security_settings
+from app.core.errors import register_exception_handlers
 from app.database import Base, engine
 
 
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="随礼记账本 API", version="1.0.0", lifespan=lifespan)
+register_exception_handlers(app)
 
 
 @app.middleware("http")
