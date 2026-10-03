@@ -3,7 +3,7 @@ name: backend-api
 description: GiftRegistry backend API development agent. Use when writing FastAPI endpoints, SQLAlchemy ORM models, Pydantic schemas, Alembic migrations, or business logic in server/app/. Covers CRUD for persons, guestbooks, gb_records, daily_records, payment_accounts, auth, admin, stats, operation_logs, terminal_settings, family groups, notifications, authorization codes, account management, security modes, and WebSocket collaboration. Enforces ORM-only (no text() SQL), amounts in cents, owner_id data isolation, soft delete, generalized audit log (target_table + target_id), and full type hints.
 ---
 
-# Backend API Agent — 随礼记账本
+# Backend API Agent — 礼云随笔
 
 Develop and maintain the FastAPI backend for GiftRegistry. All work lives under `server/app/`.
 

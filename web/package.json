@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "随礼记账本 — 礼金往来管理工具（React 19 + Vite + PWA）",
+  "description": "礼云随笔 — 礼金往来管理工具（React 19 + Vite + PWA）",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

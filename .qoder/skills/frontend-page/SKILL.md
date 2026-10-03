@@ -3,7 +3,7 @@ name: frontend-page
 description: GiftRegistry frontend page development agent. Use when building React components, pages, Zustand stores, API client calls, TanStack Query hooks, Dexie.js offline storage, ECharts visualizations, WebSocket collaboration, or UI styling in web/src/. Covers all pages (login, register, lock screen, dashboard, collect, guestbook wizard, daily records, people, accounts, stats, settings, family, admin, notifications, authorization codes, security, merge wizard, terminal settings), responsive layout (mobile/tablet/desktop), design system tokens, keyboard shortcuts, notification bell, and PWA features. Enforces TypeScript strict mode, Tailwind-only styling with design tokens, amounts in cents, offline-first with IndexedDB, and pnpm package management.
 ---
 
-# Frontend Page Agent — 随礼记账本
+# Frontend Page Agent — 礼云随笔
 
 Develop and maintain the React frontend for GiftRegistry. All work lives under `web/src/`.
 
