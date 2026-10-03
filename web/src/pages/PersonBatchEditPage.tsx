@@ -4,20 +4,26 @@ import { useQueryClient } from '@tanstack/react-query'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import type { Person } from '../types'
+import { DEFAULT_RELATION_TAGS } from '../types'
 import { getPersonsPaginated, updatePerson } from '../lib/api-client'
 import { queryKeys } from '../hooks/queryKeys'
 
-/** 后端关系标签（英文枚举）与中文对照 */
-const RELATION_OPTIONS = [
-  { value: 'relative', label: '亲戚' },
-  { value: 'friend', label: '朋友' },
-  { value: 'colleague', label: '同事' },
-  { value: 'classmate', label: '同学' },
-  { value: 'neighbor', label: '邻居' },
-  { value: 'other', label: '其他' },
-] as const
+/** 存量英文编码 → 中文显示值；自定义类别原样显示 */
+const RELATION_EN_TO_ZH: Record<string, string> = {
+  relative: '亲戚',
+  friend: '朋友',
+  colleague: '同事',
+  classmate: '同学',
+  neighbor: '邻居',
+  other: '其他',
+}
 
-type RelationValue = (typeof RELATION_OPTIONS)[number]['value']
+const toDisplayTag = (raw?: string | null): string => {
+  if (!raw) return '其他'
+  return RELATION_EN_TO_ZH[raw] ?? raw
+}
+
+type RelationValue = string
 
 interface RowState {
   nickname: string
@@ -29,9 +35,7 @@ interface RowState {
 
 const toRow = (p: Person): RowState => ({
   nickname: p.nickname ?? '',
-  relation: (RELATION_OPTIONS.some((o) => o.value === p.relationship_tag)
-    ? p.relationship_tag
-    : 'other') as RelationValue,
+  relation: toDisplayTag(p.relationship_tag ?? p.relation_tag),
   aliasesText: (p.aliases ?? []).join('，'),
   phone: p.phone ?? '',
   note: p.note ?? '',
@@ -141,6 +145,20 @@ export default function PersonBatchEditPage() {
     'h-9 w-full rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary'
   const dirtyCls = 'border-warning/70 bg-warning/5'
 
+  /* 关系类别候选：默认类别 + 现有人员已用的自定义类别 */
+  const relationOptions = useMemo(() => {
+    const seen = new Set<string>(DEFAULT_RELATION_TAGS)
+    const extras: string[] = []
+    for (const p of persons) {
+      const t = toDisplayTag(p.relationship_tag ?? p.relation_tag)
+      if (!seen.has(t)) {
+        seen.add(t)
+        extras.push(t)
+      }
+    }
+    return [...DEFAULT_RELATION_TAGS, ...extras]
+  }, [persons])
+
   return (
     <PageScaffold
       title="人员批量编辑"
@@ -176,6 +194,11 @@ export default function PersonBatchEditPage() {
           <p className="py-10 text-center text-ink-secondary">{persons.length === 0 ? '暂无人员档案' : '无匹配人员'}</p>
         ) : (
           <div className="overflow-x-auto">
+            <datalist id="batch-relation-options">
+              {relationOptions.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
             <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-ink-secondary">
@@ -207,15 +230,14 @@ export default function PersonBatchEditPage() {
                         />
                       </td>
                       <td className="py-1.5 pr-3">
-                        <select
+                        <input
+                          list="batch-relation-options"
                           value={r.relation}
-                          onChange={(e) => updateRow(p.id!, { relation: e.target.value as RelationValue })}
-                          className={`${inputCls} ${dirty && r.relation !== (p.relationship_tag as RelationValue ?? 'other') ? dirtyCls : ''}`}
-                        >
-                          {RELATION_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                          ))}
-                        </select>
+                          onChange={(e) => updateRow(p.id!, { relation: e.target.value })}
+                          placeholder="选择或输入"
+                          maxLength={20}
+                          className={`${inputCls} ${dirty && r.relation !== toDisplayTag(p.relationship_tag ?? p.relation_tag) ? dirtyCls : ''}`}
+                        />
                       </td>
                       <td className="py-1.5 pr-3">
                         <input

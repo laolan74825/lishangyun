@@ -6,6 +6,7 @@ import Toast, { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import RelationTagFilter from '../components/people/RelationTagFilter'
+import { DEFAULT_RELATION_TAGS } from '../types'
 import type { Person, RelationTag, DailyRecord, GbRecord } from '../types'
 import {
   getDailyRecordsByName,
@@ -21,7 +22,17 @@ import {
   useBackfillPersonLinks,
 } from '../hooks/useQueries'
 
-const relationOptions: RelationTag[] = ['亲戚', '朋友', '同事', '同学', '邻居', '其他']
+const DEFAULT_TAG_COLORS: Record<string, string> = {
+  '亲戚': 'bg-danger-bg text-danger',
+  '朋友': 'bg-success-bg text-success-deep',
+  '同事': 'bg-warning-bg text-warning',
+  '同学': 'bg-info/10 text-info',
+  '邻居': 'bg-gray-100 text-ink-secondary',
+  '其他': 'bg-gray-100 text-ink-secondary',
+}
+
+/** 类别配色：默认类别固定配色，自定义类别统一灰色 */
+const tagColor = (tag: string) => DEFAULT_TAG_COLORS[tag] ?? 'bg-gray-100 text-ink-secondary'
 
 /** 人员管理页（含往来明细 F-9.4、差额计算 F-9.5） */
 export default function PeoplePage() {
@@ -152,7 +163,7 @@ export default function PeoplePage() {
       name: formName.trim(),
       nickname: formNickname.trim() || undefined,
       phone: formPhone.trim() || undefined,
-      relation_tag: formTag as RelationTag,
+      relation_tag: formTag.trim() || '其他',
       aliases,
       note: formNote.trim() || undefined,
     }
@@ -190,17 +201,23 @@ export default function PeoplePage() {
     setDeletingPersonId(null)
   }
 
-  const tagColors: Record<RelationTag, string> = {
-    亲戚: 'bg-danger-bg text-danger',
-    朋友: 'bg-success-bg text-success-deep',
-    同事: 'bg-warning-bg text-warning',
-    同学: 'bg-info/10 text-info',
-    邻居: 'bg-gray-100 text-ink-secondary',
-    其他: 'bg-gray-100 text-ink-secondary',
-  }
-
   const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
   const isPending = createMutation.isPending || updateMutation.isPending
+
+  /* 类别候选：六个默认类别 + 现有人员已用的自定义类别 */
+  const customTags = useMemo(() => {
+    const seen = new Set<string>(DEFAULT_RELATION_TAGS)
+    const extras: string[] = []
+    for (const p of allPersons) {
+      const t = p.relation_tag
+      if (t && !seen.has(t)) {
+        seen.add(t)
+        extras.push(t)
+      }
+    }
+    return extras
+  }, [allPersons])
+  const tagOptions = useMemo(() => [...DEFAULT_RELATION_TAGS, ...customTags], [customTags])
 
   return (
     <PageScaffold
@@ -243,6 +260,7 @@ export default function PeoplePage() {
           value={filterTag}
           onChange={(v) => setFilterTag(v)}
           counts={tagCounts}
+          extraTags={customTags}
         />
       </div>
 
@@ -265,7 +283,7 @@ export default function PeoplePage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-lg font-bold text-ink">{p.name}</h3>
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${tagColors[p.relation_tag]}`}>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${tagColor(p.relation_tag)}`}>
                         {p.relation_tag}
                       </span>
                     </div>
@@ -446,18 +464,21 @@ export default function PeoplePage() {
             />
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">关系标签</span>
-            <select
+            <span className="text-sm font-medium text-ink">关系类别</span>
+            {/* 可选择默认/已有类别，也可直接输入自定义类别（如「发小」「牌友」） */}
+            <input
+              list="relation-tag-options"
               value={formTag}
-              onChange={(e) => setFormTag(e.target.value as RelationTag)}
-              className="h-11 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary"
-            >
-              {relationOptions.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
+              onChange={(e) => setFormTag(e.target.value)}
+              placeholder="选择或输入，如：同事、发小"
+              maxLength={20}
+              className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
+            />
+            <datalist id="relation-tag-options">
+              {tagOptions.map((t) => (
+                <option key={t} value={t} />
               ))}
-            </select>
+            </datalist>
           </label>
         </div>
 

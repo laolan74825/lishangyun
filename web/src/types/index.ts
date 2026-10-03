@@ -18,8 +18,14 @@ export type CheckStatus = 'unchecked' | 'checked' | 'disputed'
 /** 日常记录类型：送出去 / 收进来 */
 export type RecordType = 'out' | 'in'
 
-/** 关系标签 */
-export type RelationTag = '亲戚' | '朋友' | '同事' | '同学' | '邻居' | '其他'
+/**
+ * 关系类别：六个默认类别（亲戚/朋友/同事/同学/邻居/其他）+ 用户自定义类别。
+ * 自定义类别以中文文本存储；存量英文编码（relative/friend/...）由 api-client 映射为中文。
+ */
+export type RelationTag = string
+
+/** 默认关系类别 */
+export const DEFAULT_RELATION_TAGS: RelationTag[] = ['亲戚', '朋友', '同事', '同学', '邻居', '其他']
 
 /** 微信限额预警等级 */
 export type LimitLevel = 'normal' | 'warning' | 'exhausted'
@@ -70,7 +76,7 @@ export interface Person {
   phone?: string
   aliases: string[]
   relation_tag: RelationTag
-  /** 后端实际存储的关系标签（英文枚举 relative/friend/colleague/classmate/neighbor/other） */
+  /** 后端原始存储值：默认类别为英文编码，自定义类别为中文文本（读取时请用 relation_tag 显示值） */
   relationship_tag?: string
   note?: string
   is_private?: boolean

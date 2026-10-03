@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 from app.schemas.daily_record import DailyRecordResponse
 
-RelationshipTag = Literal["relative", "friend", "colleague", "classmate", "neighbor", "other"]
+# 历史默认关系类别（英文编码，存量数据可能仍为这些值，读取时由前端映射为中文）
+DEFAULT_RELATION_TAGS = ("relative", "friend", "colleague", "classmate", "neighbor", "other")
 
 
 class PersonCreate(BaseModel):
@@ -13,7 +14,8 @@ class PersonCreate(BaseModel):
     nickname: str | None = Field(None, max_length=50)
     phone: str | None = Field(None, max_length=20)
     aliases: list[str] = []
-    relationship_tag: RelationshipTag = "other"
+    # 关系类别：六个默认类别之外的自定义类别直接存中文文本（最长20字）
+    relationship_tag: str = Field("other", max_length=20)
     note: str | None = None
 
 
@@ -22,7 +24,7 @@ class PersonUpdate(BaseModel):
     nickname: str | None = Field(None, max_length=50)
     phone: str | None = Field(None, max_length=20)
     aliases: list[str] | None = None
-    relationship_tag: RelationshipTag | None = None
+    relationship_tag: str | None = Field(None, max_length=20)
     note: str | None = None
     is_private: bool | None = None
 

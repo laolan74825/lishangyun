@@ -20,6 +20,39 @@ class TestPersonCRUD:
         resp = client.post("/api/persons/", json={"name": "李四"}, headers=admin_headers)
         assert resp.status_code == 200
 
+    async def test_create_person_custom_relation_tag(self, client, admin_headers, db_session):
+        """自定义关系类别：直接以中文文本存储，读取原样返回"""
+        resp = client.post("/api/persons/", json={
+            "name": "王五",
+            "relationship_tag": "发小",
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+        person_id = resp.json()
+
+        detail = client.get(f"/api/persons/{person_id}", headers=admin_headers)
+        assert detail.status_code == 200
+        assert detail.json()["relationship_tag"] == "发小"
+
+    async def test_update_person_custom_relation_tag(self, client, admin_headers, db_session):
+        person_id = client.post("/api/persons/", json={
+            "name": "王五", "relationship_tag": "friend",
+        }, headers=admin_headers).json()
+
+        resp = client.put(f"/api/persons/{person_id}", json={
+            "relationship_tag": "牌友",
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+
+        detail = client.get(f"/api/persons/{person_id}", headers=admin_headers)
+        assert detail.json()["relationship_tag"] == "牌友"
+
+    async def test_relation_tag_too_long_rejected(self, client, admin_headers, db_session):
+        resp = client.post("/api/persons/", json={
+            "name": "王五",
+            "relationship_tag": "很" * 21,
+        }, headers=admin_headers)
+        assert resp.status_code == 422
+
     async def test_list_persons(self, client, admin_headers, db_session):
         client.post("/api/persons/", json={"name": "张三"}, headers=admin_headers)
         client.post("/api/persons/", json={"name": "李四"}, headers=admin_headers)

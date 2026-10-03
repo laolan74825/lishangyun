@@ -1,4 +1,4 @@
-import type { Person, RelationTag } from '../../types'
+import type { Person } from '../../types'
 
 interface PersonCardProps {
   person: Person
@@ -12,7 +12,7 @@ interface PersonCardProps {
   onViewDetail?: (person: Person) => void
 }
 
-const tagColors: Record<RelationTag, string> = {
+const tagColors: Record<string, string> = {
   '亲戚': 'bg-danger-bg text-danger',
   '朋友': 'bg-success-bg text-success-deep',
   '同事': 'bg-warning-bg text-warning',
@@ -20,6 +20,8 @@ const tagColors: Record<RelationTag, string> = {
   '邻居': 'bg-gray-100 text-ink-secondary',
   '其他': 'bg-gray-100 text-ink-secondary',
 }
+
+const tagColor = (tag: string) => tagColors[tag] ?? 'bg-gray-100 text-ink-secondary'
 
 const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
 
@@ -31,7 +33,7 @@ export default function PersonCard({ person, summary, onEdit, onDelete, onViewDe
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-bold text-ink">{person.name}</h3>
-              <span className={`rounded-full px-2 py-0.5 text-xs ${tagColors[person.relation_tag]}`}>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${tagColor(person.relation_tag)}`}>
                 {person.relation_tag}
               </span>
             </div>

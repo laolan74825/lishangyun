@@ -443,20 +443,20 @@ const RELATION_ZH_TO_EN: Record<RelationTag, string> = {
 
 const RELATION_ZH_VALUES = new Set<string>(Object.values(RELATION_EN_TO_ZH))
 
-/** 任意来源标签（英文枚举/中文/未知）统一转为中文显示值 */
+/** 任意来源标签（英文枚举/中文自定义/未知）统一转为显示值：默认类别英文→中文，自定义类别原样显示 */
 const toZhTag = (tag?: string | null): RelationTag => {
   if (!tag) return '其他'
-  if (RELATION_ZH_VALUES.has(tag)) return tag as RelationTag
-  return RELATION_EN_TO_ZH[tag] ?? '其他'
+  if (RELATION_ZH_VALUES.has(tag)) return tag
+  return RELATION_EN_TO_ZH[tag] ?? tag
 }
 
-/** 后端响应（relationship_tag 英文）→ 前端 Person（relation_tag 中文） */
+/** 后端响应（relationship_tag）→ 前端 Person（relation_tag 显示值） */
 const normalizePerson = (p: Person & { relationship_tag?: string }): Person => ({
   ...p,
   relation_tag: toZhTag(p.relationship_tag ?? p.relation_tag),
 })
 
-/** 前端变更（relation_tag 中文）→ 后端（relationship_tag 英文） */
+/** 前端变更（relation_tag 显示值）→ 后端：默认类别可继续传英文编码，自定义类别原样提交 */
 const denormalizeChanges = (changes: Record<string, unknown>): Record<string, unknown> => {
   const { relation_tag, relationship_tag, ...rest } = changes
   const out: Record<string, unknown> = { ...rest }

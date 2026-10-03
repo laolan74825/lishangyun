@@ -83,7 +83,7 @@ async def create_person(
         name=body.name,
         nickname=body.nickname,
         phone=body.phone,
-        relationship_tag=body.relationship_tag,
+        relationship_tag=body.relationship_tag.strip() or "other",
         note=body.note,
     )
     person._aliases = json.dumps(body.aliases, ensure_ascii=False)
@@ -113,6 +113,8 @@ async def update_person(
     data = body.model_dump(exclude_unset=True)
     if "aliases" in data:
         person._aliases = json.dumps(data.pop("aliases"), ensure_ascii=False)
+    if "relationship_tag" in data and isinstance(data["relationship_tag"], str):
+        data["relationship_tag"] = data["relationship_tag"].strip() or "other"
     for k, v in data.items():
         setattr(person, k, v)
     person.updated_at = utcnow()
