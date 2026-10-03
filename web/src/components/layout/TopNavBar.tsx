@@ -52,7 +52,7 @@ export default function TopNavBar() {
     <header className="sticky top-0 z-10 bg-ink text-white">
       <div className="flex h-16 w-full items-center gap-8 px-8">
         <Link to="/" className="text-lg font-bold text-white">
-          🧧 随礼记账本
+          🧧 礼云随笔
         </Link>
         <nav className="flex gap-6">
           {navItems.map((item) => (

@@ -29,7 +29,7 @@ function MobileHeader() {
   return (
     <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-line bg-card px-4">
       <Link to="/" className="text-lg font-bold text-ink">
-        🧧 随礼记账本
+        🧧 礼云随笔
       </Link>
       <div className="flex items-center gap-3">
         <SyncStatusBadge />
@@ -63,7 +63,7 @@ function DesktopLayout() {
         </main>
       </div>
       <footer className="flex h-8 shrink-0 items-center justify-between border-t border-line bg-card px-6 text-xs text-ink-secondary">
-        <span>随礼记账本 v0.1.0</span>
+        <span>礼云随笔 v0.1.0</span>
         <span>Ctrl+N 记一笔 · Ctrl+F 搜索 · Esc 返回</span>
       </footer>
     </div>

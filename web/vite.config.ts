@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: '随礼记账本',
-        short_name: '随礼记账',
-        description: '面向个人/家庭的轻量级礼金往来管理工具',
+        name: '礼云随笔',
+        short_name: '礼云随笔',
+        description: '人情往来小账本——随手记下每一份心意',
         lang: 'zh-CN',
         theme_color: '#E07B3A',
         background_color: '#F5F5F0',

@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="随礼记账本 API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="礼云随笔 API", version="1.0.0", lifespan=lifespan)
 register_exception_handlers(app)
 
 

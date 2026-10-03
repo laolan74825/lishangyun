@@ -1,5 +1,5 @@
 /**
- * 随礼记账本 — 领域类型定义
+ * 礼云随笔 — 领域类型定义
  * 与需求文档 v3.0 对齐；金额统一为「分」(INTEGER)
  */
 
@@ -32,6 +32,7 @@ export type ActionType =
   | 'CREATE'
   | 'UPDATE'
   | 'DELETE'
+  | 'RESTORE'
   | 'MERGE'
   | 'ARCHIVE'
   | 'APPROVE'
@@ -107,6 +108,7 @@ export interface Guestbook {
   deleted_at?: string
   created_at: string
   closing_at?: string
+  closing_summary?: string | null
   archived_at?: string
 }
 

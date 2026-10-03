@@ -153,7 +153,8 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm rounded-card bg-card p-8 shadow-card">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-ink">🧧 随礼记账本</h1>
+          <h1 className="text-2xl font-bold text-ink">🧧 礼云随笔</h1>
+          <p className="mt-1 text-xs text-ink-secondary">人情往来小账本</p>
           <p className="mt-2 text-sm text-ink-secondary">
             {needsInit ? '首次运行，请创建系统管理员' : isRegister ? '创建新账户' : '登录以继续'}
           </p>
@@ -373,11 +374,11 @@ export default function LoginPage() {
               </button>
             </div>
             <div className="space-y-4 text-sm leading-relaxed text-ink-secondary">
-              <p className="font-medium text-ink">欢迎使用随礼记账本</p>
-              <p>本协议是您与随礼记账本服务提供者之间关于使用本服务所订立的协议。请您仔细阅读本协议，特别是免除或者限制责任的条款、法律适用和争议解决条款。如您对本协议有任何疑问，可向客服咨询。</p>
+              <p className="font-medium text-ink">欢迎使用礼云随笔</p>
+              <p>本协议是您与礼云随笔服务提供者之间关于使用本服务所订立的协议。请您仔细阅读本协议，特别是免除或者限制责任的条款、法律适用和争议解决条款。如您对本协议有任何疑问，可向客服咨询。</p>
 
               <h3 className="font-semibold text-ink">一、服务内容</h3>
-              <p>随礼记账本是一款个人礼金管理工具，提供礼簿管理、日常收支记录、人员往来统计等功能。本服务通过网站、移动应用等形式向您提供。</p>
+              <p>礼云随笔是一款人情往来记录工具，随手记录收礼送礼、管理礼簿、对账统计，让每一份心意都有处安放。本服务通过网站、移动应用等形式向您提供。</p>
 
               <h3 className="font-semibold text-ink">二、账号注册与使用</h3>
               <p>1. 您需要提供真实、准确的个人信息完成注册。<br/>
