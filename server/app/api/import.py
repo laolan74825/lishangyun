@@ -10,10 +10,12 @@ from sqlalchemy import select
 
 from app.core.dependencies import CurrentUser, DbSession
 from app.core.helpers import write_audit_log
+from app.core.time import utcnow
 from app.models.daily_record import DailyRecord
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
 from app.schemas.export_import import (
+    GuestbookInfoPreview,
     ImportCommitRequest,
     ImportCommitResponse,
     ImportPreviewResponse,
@@ -52,8 +54,23 @@ RECORD_TYPE_TO_EN = {
     "送": "out",
 }
 
+# 整本礼簿导入：礼簿事由中文 → 编码（与导出/前台展示口径一致）
+GUESTBOOK_EVENT_TYPE_TO_EN = {
+    "婚礼": "wedding",
+    "订婚": "engagement",
+    "生日": "birthday",
+    "满月酒": "fullmoon",
+    "生日/寿宴": "birthday_banquet",
+    "乔迁": "housewarming",
+    "升学": "graduation",
+    "丧葬": "funeral",
+    "节日红包": "holiday",
+    "其他": "other",
+}
+
 DAILY_RECORD_HEADERS = ["姓名", "电话", "类型", "金额", "事由", "支付方式", "日期", "备注"]
 GB_RECORD_HEADERS = ["宾客姓名", "电话", "金额", "支付方式", "收银人", "记账时间", "备注"]
+GUESTBOOK_INFO_HEADERS = ["礼簿名称", "事由", "礼簿日期", "备注"]
 
 MAX_ROWS = 10000
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -62,10 +79,17 @@ _preview_cache: dict[str, dict] = {}
 
 
 def _build_excel_response(content: bytes, filename: str) -> StreamingResponse:
+    # RFC 5987：中文文件名必须百分号编码，否则 latin-1 头编码失败
+    from urllib.parse import quote
+    fallback = re.sub(r"[^\x20-\x7e]", "_", filename) or "export.xlsx"
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quote(filename)}'
+            )
+        },
     )
 
 
@@ -171,14 +195,164 @@ def _generate_gb_template() -> bytes:
 @router.get("/templates/{template_type}")
 async def download_template(
     current_user: CurrentUser,
-    template_type: str = Path(..., pattern="^(daily_record|gb_record)$"),
+    template_type: str = Path(..., pattern="^(daily_record|gb_record|guestbook)$"),
 ):
     if template_type == "daily_record":
         content = _generate_daily_template()
         return _build_excel_response(content, "日常记录导入模板.xlsx")
-    else:
+    elif template_type == "gb_record":
         content = _generate_gb_template()
         return _build_excel_response(content, "礼簿记录导入模板.xlsx")
+    else:
+        content = _generate_guestbook_create_template()
+        return _build_excel_response(content, "整本礼簿导入模板.xlsx")
+
+
+def _generate_guestbook_create_template() -> bytes:
+    """整本礼簿导入模板：「礼簿信息」表 + 「收礼明细」表 + 「字段说明」表"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    header_font = Font(bold=True, size=11)
+    header_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
+
+    ws_info = wb.active
+    ws_info.title = "礼簿信息"
+    for col, header in enumerate(GUESTBOOK_INFO_HEADERS, 1):
+        cell = ws_info.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    for col, val in enumerate(["张三婚礼", "婚礼", "2026-10-01", "2026年10月1日婚宴收礼"], 1):
+        ws_info.cell(row=2, column=col, value=val)
+    for i, w in enumerate([20, 12, 12, 40], 1):
+        ws_info.column_dimensions[ws_info.cell(row=1, column=i).column_letter].width = w
+
+    ws = wb.create_sheet("收礼明细")
+    for col, header in enumerate(GB_RECORD_HEADERS, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    examples = [
+        ["李四", "13900139000", "600.00", "现金", "王五", "2026-10-01 12:30", "老同学"],
+        ["赵六", "", "500.00", "微信", "", "2026-10-01 12:40", ""],
+    ]
+    for row_idx, example in enumerate(examples, 2):
+        for col, val in enumerate(example, 1):
+            ws.cell(row=row_idx, column=col, value=val)
+    widths = [12, 15, 12, 10, 10, 18, 30]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    ws_note = wb.create_sheet("字段说明")
+    notes = [
+        ("表", "字段", "必填", "说明"),
+        ("礼簿信息", "礼簿名称", "是", "最多100字"),
+        ("礼簿信息", "事由", "否", "婚礼/订婚/生日/满月酒/生日/寿宴/乔迁/升学/丧葬/节日红包/其他，默认「其他」"),
+        ("礼簿信息", "礼簿日期", "是", "YYYY-MM-DD 格式，不晚于今天"),
+        ("礼簿信息", "备注", "否", "最多2000字"),
+        ("收礼明细", "宾客姓名", "是", "最多50字"),
+        ("收礼明细", "电话", "否", "最多20字"),
+        ("收礼明细", "金额", "是", "正数，最多2位小数，范围1-100000元"),
+        ("收礼明细", "支付方式", "否", "现金/微信/其他，默认现金"),
+        ("收礼明细", "收银人", "否", "最多50字"),
+        ("收礼明细", "记账时间", "否", "YYYY-MM-DD HH:MM 格式，默认当前时间"),
+        ("收礼明细", "备注", "否", "最多500字"),
+        ("说明", "—", "—", "导入后礼簿为「收尾中」状态，明细记录自动记为已对账；先在「礼簿信息」表填礼簿，再在「收礼明细」表逐行填写宾客"),
+    ]
+    for row_idx, note in enumerate(notes, 1):
+        for col, val in enumerate(note, 1):
+            c = ws_note.cell(row=row_idx, column=col, value=val)
+            if row_idx == 1:
+                c.font = header_font
+    for col, w in zip("ABCD", (10, 12, 6, 60)):
+        ws_note.column_dimensions[col].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def _read_guestbook_file(file: UploadFile) -> tuple[dict, list[dict], str]:
+    """整本礼簿导入：读取「礼簿信息」「收礼明细」两个工作表（仅支持 .xlsx）"""
+    raw = await file.read()
+    if len(raw) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="导入文件过大，请分批导入（最大5MB）")
+
+    filename = file.filename or "upload.xlsx"
+    if not filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="整本礼簿导入仅支持 .xlsx 格式（请使用导入模板）")
+
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(io.BytesIO(raw), read_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="无法读取 Excel 文件，请检查文件格式")
+
+    def _sheet_rows(ws) -> list[dict]:
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            headers = [str(h).strip() if h else "" for h in next(rows_iter)]
+        except StopIteration:
+            return []
+        rows = []
+        for row_values in rows_iter:
+            if all(v is None or str(v).strip() == "" for v in row_values):
+                continue
+            row_dict = {}
+            for col_idx, header in enumerate(headers):
+                if header and col_idx < len(row_values):
+                    val = row_values[col_idx]
+                    row_dict[header] = val if val is not None else ""
+            if row_dict:
+                rows.append(row_dict)
+        return rows
+
+    if "礼簿信息" not in wb.sheetnames or "收礼明细" not in wb.sheetnames:
+        wb.close()
+        raise HTTPException(status_code=400, detail="文件需包含「礼簿信息」和「收礼明细」两个工作表，请使用导入模板")
+
+    info_rows = _sheet_rows(wb["礼簿信息"])
+    detail_rows = _sheet_rows(wb["收礼明细"])
+    wb.close()
+    return (info_rows[0] if info_rows else {}), detail_rows, filename
+
+
+def _validate_guestbook_info(info: dict) -> tuple[dict, list[str]]:
+    data: dict[str, Any] = {}
+    errors: list[str] = []
+
+    name = str(info.get("礼簿名称", "")).strip()
+    if not name:
+        errors.append("缺少必填字段：礼簿名称")
+    elif len(name) > 100:
+        errors.append("礼簿名称过长（最多100字）")
+    else:
+        data["name"] = name
+
+    event_type = str(info.get("事由", "")).strip()
+    if event_type:
+        if event_type not in GUESTBOOK_EVENT_TYPE_TO_EN:
+            errors.append("事由无效，应为：婚礼/订婚/生日/满月酒/生日/寿宴/乔迁/升学/丧葬/节日红包/其他")
+        else:
+            data["event_type"] = GUESTBOOK_EVENT_TYPE_TO_EN[event_type]
+    else:
+        data["event_type"] = "other"
+
+    event_date = _parse_date(info.get("礼簿日期"))
+    if event_date is None:
+        errors.append("礼簿日期缺失或格式错误，应为 YYYY-MM-DD 且不晚于今天")
+    else:
+        data["event_date"] = event_date
+
+    note = str(info.get("备注", "")).strip()
+    if note:
+        data["operator_note"] = note[:2000]
+
+    return data, errors
 
 
 async def _read_uploaded_file(file: UploadFile) -> tuple[list[dict], str]:
@@ -451,6 +625,65 @@ async def preview_import(
         if not result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="礼簿不存在")
 
+    if import_type == "guestbook":
+        # 整本礼簿导入：读取「礼簿信息」+「收礼明细」两个工作表
+        info, rows, filename = await _read_guestbook_file(file)
+
+        if len(rows) > MAX_ROWS:
+            raise HTTPException(status_code=400, detail=f"导入行数过多（最多{MAX_ROWS}行），请分批导入")
+        if not rows:
+            raise HTTPException(status_code=400, detail="「收礼明细」表中没有可导入的记录")
+
+        info_data, info_errors = _validate_guestbook_info(info)
+        info_valid = len(info_errors) == 0
+
+        preview_rows: list[ImportPreviewRow] = []
+        cached_rows: list[dict] = []
+        valid_count = 0
+        invalid_count = 0
+
+        for idx, row in enumerate(rows):
+            row_number = idx + 2  # 明细表表头占第 1 行
+            data, errors = _validate_gb_row(row, row_number)
+
+            is_valid = len(errors) == 0
+            if is_valid:
+                valid_count += 1
+            else:
+                invalid_count += 1
+
+            row_data = {k: str(v) if not isinstance(v, (date, datetime)) else v.isoformat() for k, v in row.items()}
+            preview_rows.append(ImportPreviewRow(
+                row_number=row_number,
+                data=row_data,
+                is_valid=is_valid,
+                errors=errors,
+            ))
+
+            cached_entry: dict[str, Any] = {"is_valid": is_valid, "is_duplicate": False}
+            if is_valid:
+                cached_entry["_parsed_data"] = data
+            cached_rows.append(cached_entry)
+
+        _preview_cache[f"{current_user.id}:{filename}"] = {
+            "guestbook_info": {"is_valid": info_valid, "_parsed_data": info_data if info_valid else None},
+            "rows": cached_rows,
+        }
+
+        info_row_data = {k: str(v) for k, v in info.items()}
+        return ImportPreviewResponse(
+            import_type=import_type,
+            total_rows=len(rows),
+            valid_rows=valid_count,
+            invalid_rows=invalid_count,
+            duplicate_rows=0,
+            rows=preview_rows,
+            file_name=filename,
+            guestbook_info=GuestbookInfoPreview(
+                data=info_row_data, is_valid=info_valid, errors=info_errors,
+            ),
+        )
+
     rows, filename = await _read_uploaded_file(file)
 
     if len(rows) > MAX_ROWS:
@@ -505,7 +738,7 @@ async def preview_import(
             cached_entry["_parsed_data"] = data
         cached_rows.append(cached_entry)
 
-    _preview_cache[filename] = {"rows": cached_rows}
+    _preview_cache[f"{current_user.id}:{filename}"] = {"rows": cached_rows}
 
     return ImportPreviewResponse(
         import_type=import_type,
@@ -538,13 +771,75 @@ async def commit_import(
         if not result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="礼簿不存在")
 
-    cached = _preview_cache.get(body.file_name)
+    cached = _preview_cache.get(f"{current_user.id}:{body.file_name}")
     if cached is None:
         raise HTTPException(status_code=400, detail="请先进行导入预览")
 
     valid_indices = set(body.valid_row_indices)
     imported = 0
     skipped = 0
+
+    if body.import_type == "guestbook":
+        # 整本礼簿导入：先创建礼簿（历史数据 → 收尾中），再写入收礼明细（免对账）
+        info_entry = cached.get("guestbook_info") or {}
+        if not info_entry.get("is_valid") or not info_entry.get("_parsed_data"):
+            raise HTTPException(status_code=400, detail="礼簿信息校验未通过，请修正后重新预览")
+        gb_data = dict(info_entry["_parsed_data"])
+
+        try:
+            guestbook = Guestbook(
+                owner_id=current_user.id,
+                status="closing",
+                closing_at=utcnow(),
+                **gb_data,
+            )
+            db.add(guestbook)
+            await db.flush()
+            write_audit_log(
+                db, current_user.id, "guestbooks", guestbook.id, "CREATE",
+                operator_name=current_user.username,
+                note=f"Excel 整本导入自 {body.file_name}",
+            )
+
+            for idx, cached_row in enumerate(cached["rows"]):
+                if idx not in valid_indices or not cached_row.get("is_valid"):
+                    skipped += 1
+                    continue
+
+                row_data = dict(cached_row["_parsed_data"])
+                record_time = row_data.pop("record_time", None)
+                record = GbRecord(
+                    uuid=new_uuid(),
+                    owner_id=current_user.id,
+                    guestbook_id=guestbook.id,
+                    check_status="checked",
+                    record_time=record_time or datetime.now(),
+                    **row_data,
+                )
+                db.add(record)
+                await db.flush()
+                write_audit_log(
+                    db, current_user.id, "gb_records", record.id, "CREATE",
+                    guestbook_id=guestbook.id,
+                    operator_name=current_user.username,
+                    note=f"批量导入自 {body.file_name}",
+                )
+                imported += 1
+
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"导入失败，已回滚：{str(e)}")
+
+        _preview_cache.pop(f"{current_user.id}:{body.file_name}", None)
+        return ImportCommitResponse(
+            imported_count=imported,
+            skipped_count=skipped,
+            overwritten_count=0,
+            errors=[],
+            guestbook_id=guestbook.id,
+            guestbook_name=guestbook.name,
+        )
 
     try:
         for idx, cached_row in enumerate(cached["rows"]):
@@ -598,7 +893,7 @@ async def commit_import(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"导入失败，已回滚：{str(e)}")
 
-    _preview_cache.pop(body.file_name, None)
+    _preview_cache.pop(f"{current_user.id}:{body.file_name}", None)
 
     return ImportCommitResponse(
         imported_count=imported,

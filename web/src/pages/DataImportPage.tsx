@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import DataImportPreview from '../components/import/DataImportPreview'
@@ -8,15 +9,22 @@ import {
   previewImport,
   commitImport,
   type ImportPreviewResult,
+  type ImportType,
 } from '../lib/api-client'
 import { getAllGuestbooks } from '../lib/api-client'
 
-type ImportType = 'daily_record' | 'gb_record'
 type DuplicateStrategy = 'skip' | 'overwrite' | 'import_all'
 type Step = 'upload' | 'preview' | 'result'
 
+const TEMPLATE_FILENAMES: Record<ImportType, string> = {
+  daily_record: '日常记录导入模板.xlsx',
+  gb_record: '礼簿记录导入模板.xlsx',
+  guestbook: '整本礼簿导入模板.xlsx',
+}
+
 export default function DataImportPage() {
   const { toast, showToast } = useToast()
+  const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [importType, setImportType] = useState<ImportType>('daily_record')
@@ -26,7 +34,12 @@ export default function DataImportPage() {
   const [previewing, setPreviewing] = useState(false)
   const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip')
   const [committing, setCommitting] = useState(false)
-  const [result, setResult] = useState<{ imported: number; skipped: number } | null>(null)
+  const [result, setResult] = useState<{
+    imported: number
+    skipped: number
+    guestbookId?: number
+    guestbookName?: string
+  } | null>(null)
 
   const { data: guestbooks = [] } = useQuery({
     queryKey: ['guestbooks-simple'],
@@ -40,7 +53,7 @@ export default function DataImportPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = importType === 'daily_record' ? '日常记录导入模板.xlsx' : '礼簿记录导入模板.xlsx'
+      a.download = TEMPLATE_FILENAMES[importType]
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -84,8 +97,15 @@ export default function DataImportPage() {
         duplicateStrategy,
         guestbookId,
       )
-      setResult({ imported: res.imported_count, skipped: res.skipped_count })
+      setResult({
+        imported: res.imported_count,
+        skipped: res.skipped_count,
+        guestbookId: res.guestbook_id,
+        guestbookName: res.guestbook_name,
+      })
       setStep('result')
+      // 导入完成后刷新全部缓存（礼簿列表、统计等）
+      queryClient.invalidateQueries()
       showToast(`导入完成：成功 ${res.imported_count} 条，跳过 ${res.skipped_count} 条`)
     } catch (e) {
       showToast('导入失败：' + (e as Error).message)
@@ -131,7 +151,18 @@ export default function DataImportPage() {
               }`}
             >
               礼簿记录
-              <span className="mt-1 block text-xs opacity-70">某个礼簿的收礼记录</span>
+              <span className="mt-1 block text-xs opacity-70">追加到某个已有礼簿</span>
+            </button>
+            <button
+              onClick={() => { setImportType('guestbook'); handleReset() }}
+              className={`flex-1 rounded-btn border-2 px-4 py-3 text-sm font-medium transition-colors ${
+                importType === 'guestbook'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-line text-ink-secondary hover:border-primary/50'
+              }`}
+            >
+              整本礼簿
+              <span className="mt-1 block text-xs opacity-70">Excel 一次创建新礼簿（含收礼明细）</span>
             </button>
           </div>
         </div>
@@ -166,14 +197,16 @@ export default function DataImportPage() {
               下载导入模板
             </button>
             <span className="text-xs text-ink-secondary">
-              支持 .xlsx / .csv，最大 5MB，最多 10,000 行
+              {importType === 'guestbook'
+                ? '仅支持 .xlsx（请使用导入模板），最大 5MB，最多 10,000 行；导入后礼簿为「收尾中」，明细自动记为已对账'
+                : '支持 .xlsx / .csv，最大 5MB，最多 10,000 行'}
             </span>
           </div>
           <div className="flex items-center gap-3">
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.csv"
+              accept={importType === 'guestbook' ? '.xlsx' : '.xlsx,.csv'}
               onChange={(e) => {
                 const file = e.target.files?.[0]
                 if (file) handleFileSelect(file)
@@ -196,6 +229,28 @@ export default function DataImportPage() {
         {/* 预览步骤 */}
         {step === 'preview' && preview && (
           <div className="flex flex-col gap-4">
+            {/* 礼簿信息（整本礼簿导入） */}
+            {preview.guestbook_info && (
+              <div className={`rounded-card p-5 shadow-card ${
+                preview.guestbook_info.is_valid ? 'bg-card' : 'bg-danger-bg/40'
+              }`}>
+                <h3 className="mb-3 text-sm font-semibold text-ink">礼簿信息</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                  <div><span className="text-ink-secondary">礼簿名称：</span>{preview.guestbook_info.data['礼簿名称'] || '—'}</div>
+                  <div><span className="text-ink-secondary">事由：</span>{preview.guestbook_info.data['事由'] || '其他'}</div>
+                  <div><span className="text-ink-secondary">礼簿日期：</span>{preview.guestbook_info.data['礼簿日期'] || '—'}</div>
+                  <div><span className="text-ink-secondary">备注：</span>{preview.guestbook_info.data['备注'] || '—'}</div>
+                </div>
+                {!preview.guestbook_info.is_valid && (
+                  <div className="mt-2 flex flex-col gap-0.5">
+                    {preview.guestbook_info.errors.map((err, i) => (
+                      <span key={i} className="text-xs text-danger">{err}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="rounded-card bg-card p-5 shadow-card">
               <h3 className="mb-3 text-sm font-semibold text-ink">校验结果</h3>
               <DataImportPreview
@@ -246,7 +301,11 @@ export default function DataImportPage() {
               </button>
               <button
                 onClick={handleCommit}
-                disabled={committing || preview.valid_rows === 0}
+                disabled={
+                  committing ||
+                  preview.valid_rows === 0 ||
+                  (preview.guestbook_info !== undefined && !preview.guestbook_info.is_valid)
+                }
                 className="rounded-btn bg-primary px-6 py-2.5 text-sm font-semibold text-white disabled:bg-disabled"
               >
                 {committing ? '导入中…' : `确认导入（${preview.valid_rows} 条）`}
@@ -263,6 +322,19 @@ export default function DataImportPage() {
             <p className="mt-2 text-sm text-ink-secondary">
               成功导入 {result.imported} 条记录，跳过 {result.skipped} 条
             </p>
+            {result.guestbookId && (
+              <p className="mt-1 text-sm text-ink-secondary">
+                已创建礼簿
+                <Link
+                  to="/guestbooks/$id"
+                  params={{ id: String(result.guestbookId) }}
+                  className="mx-1 font-medium text-info hover:underline"
+                >
+                  「{result.guestbookName}」
+                </Link>
+                （收尾中，明细已对账）
+              </p>
+            )}
             <button
               onClick={handleReset}
               className="mt-6 rounded-btn bg-primary px-6 py-2.5 text-sm font-semibold text-white"

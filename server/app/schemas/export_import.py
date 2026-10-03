@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 ExportFormat = Literal["xlsx", "csv"]
 ExportScope = Literal["daily_records", "guestbook"]
-ImportType = Literal["daily_record", "gb_record"]
+ImportType = Literal["daily_record", "gb_record", "guestbook"]
 DuplicateStrategy = Literal["skip", "overwrite", "import_all"]
 
 
@@ -16,6 +16,13 @@ class ExportRequest(BaseModel):
     include_private: bool = True
     start_date: date | None = None
     end_date: date | None = None
+
+
+class GuestbookInfoPreview(BaseModel):
+    """整本礼簿导入：礼簿信息（名称/事由/日期）的校验结果"""
+    data: dict = {}
+    is_valid: bool
+    errors: list[str] = []
 
 
 class ImportPreviewRow(BaseModel):
@@ -35,6 +42,7 @@ class ImportPreviewResponse(BaseModel):
     duplicate_rows: int
     rows: list[ImportPreviewRow]
     file_name: str
+    guestbook_info: GuestbookInfoPreview | None = None
 
 
 class ImportCommitRequest(BaseModel):
@@ -50,6 +58,8 @@ class ImportCommitResponse(BaseModel):
     skipped_count: int
     overwritten_count: int
     errors: list[dict] = []
+    guestbook_id: int | None = None
+    guestbook_name: str | None = None
 
 
 class ImportErrorReport(BaseModel):

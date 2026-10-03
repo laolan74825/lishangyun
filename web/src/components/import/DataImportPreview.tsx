@@ -2,7 +2,7 @@ import type { ImportPreviewRow } from '../../lib/api-client'
 
 interface DataImportPreviewProps {
   rows: ImportPreviewRow[]
-  importType: 'daily_record' | 'gb_record'
+  importType: 'daily_record' | 'gb_record' | 'guestbook'
   totalRows: number
   validRows: number
   invalidRows: number

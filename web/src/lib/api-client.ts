@@ -832,22 +832,30 @@ export interface ImportPreviewRow {
 }
 
 export interface ImportPreviewResult {
-  import_type: 'daily_record' | 'gb_record'
+  import_type: 'daily_record' | 'gb_record' | 'guestbook'
   total_rows: number
   valid_rows: number
   invalid_rows: number
   duplicate_rows: number
   rows: ImportPreviewRow[]
   file_name: string
+  /** 整本礼簿导入：礼簿信息（名称/事由/日期）的校验结果 */
+  guestbook_info?: {
+    data: Record<string, string>
+    is_valid: boolean
+    errors: string[]
+  }
 }
 
-export async function downloadImportTemplate(templateType: 'daily_record' | 'gb_record'): Promise<Blob> {
+export type ImportType = 'daily_record' | 'gb_record' | 'guestbook'
+
+export async function downloadImportTemplate(templateType: ImportType): Promise<Blob> {
   return api.getBlob(`/import/templates/${templateType}`)
 }
 
 export async function previewImport(
   file: File,
-  importType: 'daily_record' | 'gb_record',
+  importType: ImportType,
   guestbookId?: number,
 ): Promise<ImportPreviewResult> {
   const formData = new FormData()
@@ -878,11 +886,18 @@ export async function previewImport(
 
 export async function commitImport(
   fileName: string,
-  importType: 'daily_record' | 'gb_record',
+  importType: ImportType,
   validRowIndices: number[],
   duplicateStrategy: 'skip' | 'overwrite' | 'import_all' = 'skip',
   guestbookId?: number,
-): Promise<{ imported_count: number; skipped_count: number; overwritten_count: number; errors: object[] }> {
+): Promise<{
+  imported_count: number
+  skipped_count: number
+  overwritten_count: number
+  errors: object[]
+  guestbook_id?: number
+  guestbook_name?: string
+}> {
   return api.post('/import/commit', {
     import_type: importType,
     file_name: fileName,
