@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 GuestbookStatus = Literal["active", "closing", "archived"]
-EventType = Literal["wedding", "birthday", "fullmoon", "housewarming", "graduation", "funeral", "holiday", "other"]
+EventType = Literal["wedding", "engagement", "birthday", "fullmoon", "birthday_banquet", "housewarming", "graduation", "funeral", "holiday", "other"]
 
 
 class GuestbookCreate(BaseModel):

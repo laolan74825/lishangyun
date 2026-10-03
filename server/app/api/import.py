@@ -24,14 +24,16 @@ from app.utils.idempotency import new_uuid
 
 router = APIRouter(prefix="/import", tags=["import"])
 
-VALID_DAILY_EVENT_TYPES = {"婚礼", "生日", "满月酒", "乔迁", "升学", "丧葬", "节日红包", "其他"}
+VALID_DAILY_EVENT_TYPES = {"婚礼", "订婚", "生日", "满月酒", "生日/寿宴", "乔迁", "升学", "丧葬", "节日红包", "其他"}
 VALID_PAYMENT_METHODS = {"现金", "微信", "其他"}
 VALID_RECORD_TYPES = {"收", "送"}
 
 EVENT_TYPE_TO_EN = {
     "婚礼": "wedding",
+    "订婚": "engagement",
     "生日": "birthday",
     "满月酒": "fullmoon",
+    "生日/寿宴": "birthday_banquet",
     "乔迁": "housewarming",
     "升学": "graduation",
     "丧葬": "funeral",

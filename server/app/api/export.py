@@ -16,8 +16,10 @@ router = APIRouter(prefix="/export", tags=["export"])
 
 EVENT_TYPE_MAP = {
     "wedding": "婚礼",
+    "engagement": "订婚",
     "birthday": "生日",
     "fullmoon": "满月酒",
+    "birthday_banquet": "生日/寿宴",
     "housewarming": "乔迁",
     "graduation": "升学",
     "funeral": "丧葬",

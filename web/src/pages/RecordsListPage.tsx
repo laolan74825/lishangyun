@@ -17,8 +17,10 @@ import {
 /** 历史记录中可能存的是事由英文编码，展示时映射为中文；自由文本原样展示 */
 const EVENT_TYPE_LABELS: Record<string, string> = {
   wedding: '婚礼',
+  engagement: '订婚',
   birthday: '周岁宴',
   fullmoon: '满月酒',
+  birthday_banquet: '生日/寿宴',
   housewarming: '乔迁',
   graduation: '升学宴',
   funeral: '丧葬',
