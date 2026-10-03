@@ -494,12 +494,21 @@ export function GuestbookListPage() {
       title="礼簿管理"
       description="管理您的宴请礼簿，新建或进入收礼现场"
       actions={
-        <Link
-          to="/guestbooks/new"
-          className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
-        >
-          ＋ 新建礼簿
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            to="/import"
+            search={{ type: 'guestbook' }}
+            className="rounded-btn border border-primary px-5 py-2.5 text-sm font-semibold text-primary hover:bg-primary/5"
+          >
+            📥 导入礼簿
+          </Link>
+          <Link
+            to="/guestbooks/new"
+            className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+          >
+            ＋ 新建礼簿
+          </Link>
+        </div>
       }
     >
       {loading ? (

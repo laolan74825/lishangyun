@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useSearch } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
@@ -26,8 +26,14 @@ export default function DataImportPage() {
   const { toast, showToast } = useToast()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // 支持 /import?type=guestbook 直达「整本礼簿」导入
+  const search = useSearch({ strict: false }) as { type?: string }
 
-  const [importType, setImportType] = useState<ImportType>('daily_record')
+  const [importType, setImportType] = useState<ImportType>(
+    search.type === 'guestbook' || search.type === 'gb_record' || search.type === 'daily_record'
+      ? search.type
+      : 'daily_record',
+  )
   const [guestbookId, setGuestbookId] = useState<number | undefined>()
   const [step, setStep] = useState<Step>('upload')
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null)

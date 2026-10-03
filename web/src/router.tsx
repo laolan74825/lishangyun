@@ -175,6 +175,10 @@ const importRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/import',
   component: DataImportPage,
+  // 支持 /import?type=guestbook 直达「整本礼簿」导入
+  validateSearch: (search: Record<string, unknown>): { type?: string } => ({
+    type: typeof search.type === 'string' ? search.type : undefined,
+  }),
 })
 
 const joinRoute = createRoute({
