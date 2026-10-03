@@ -260,6 +260,32 @@ async def archive_guestbook(
     return {"message": "礼簿已归档"}
 
 
+# 已归档的礼簿可以恢复为收尾中，以便补录/修正后重新归档
+# 恢复后 clearing 记录保留，重新归档时覆盖 archived_at
+@router.post("/{guestbook_id}/unarchive")
+async def unarchive_guestbook(
+    guestbook_id: int,
+    db: DbSession,
+    current_user: OwnerUser,
+):
+    result = await db.execute(
+        select(Guestbook).where(
+            Guestbook.id == guestbook_id, Guestbook.owner_id == current_user.id,
+            Guestbook.is_deleted == False
+        )
+    )
+    gb = result.scalar_one_or_none()
+    if not gb:
+        raise HTTPException(status_code=404, detail="礼簿不存在")
+    if gb.status != "archived":
+        raise HTTPException(status_code=400, detail="只有已归档的礼簿可以恢复为收尾中")
+    gb.status = "closing"
+    gb.archived_at = None
+    gb.updated_at = utcnow()
+    await db.commit()
+    return {"message": "礼簿已恢复为收尾中"}
+
+
 @router.get("/{guestbook_id}/summary")
 async def guestbook_summary(guestbook_id: int, current_user: CurrentUser, db: DbSession):
     access = await get_guestbook_access(db, current_user, guestbook_id)

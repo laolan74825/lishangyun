@@ -211,6 +211,31 @@ class TestGuestbookLifecycle:
         resp = client.post(f"/api/guestbooks/{gb_id}/archive", headers=admin_headers)
         assert resp.status_code == 400
 
+    async def test_unarchive_guestbook(self, client, admin_headers, db_session):
+        """已归档的礼簿可以恢复为收尾中，归档时间清空"""
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        client.post(f"/api/guestbooks/{gb_id}/archive", headers=admin_headers)
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/unarchive", headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp_get = client.get(f"/api/guestbooks/{gb_id}", headers=admin_headers)
+        data = resp_get.json()
+        assert data["status"] == "closing"
+        assert data["archived_at"] is None
+
+    async def test_unarchive_non_archived_fails(self, client, admin_headers, db_session):
+        """非已归档状态的礼簿不能恢复"""
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/unarchive", headers=admin_headers)
+        assert resp.status_code == 400
+
+        # 收尾中也不能直接恢复
+        client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+        resp = client.post(f"/api/guestbooks/{gb_id}/unarchive", headers=admin_headers)
+        assert resp.status_code == 400
+
 
 class TestGuestbookDeleteWithRecords:
     async def test_delete_guestbook_with_records_blocked(self, client, admin_headers, db_session):

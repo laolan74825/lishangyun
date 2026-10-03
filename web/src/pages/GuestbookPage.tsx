@@ -12,6 +12,7 @@ import {
   useAllGuestbookSummaries,
   useCreateGuestbook,
   useDeleteGuestbook,
+  useUnarchiveGuestbook,
   usePaymentAccounts,
   useCollaborationInvites,
   useCreateCollaborationInvite,
@@ -330,7 +331,9 @@ export function GuestbookListPage() {
   const navigate = useNavigate()
   const { toast, showToast } = useToast()
   const deleteMutation = useDeleteGuestbook()
+  const unarchiveMutation = useUnarchiveGuestbook()
   const [deleteId, setDeleteId] = useState<number | null>(null)
+  const [unarchiveId, setUnarchiveId] = useState<number | null>(null)
   const [inviteGuestbookId, setInviteGuestbookId] = useState<number | null>(null)
 
   const active = useMemo(() => guestbooks.filter((g) => g.status === 'active'), [guestbooks])
@@ -359,12 +362,27 @@ export function GuestbookListPage() {
     })
   }
 
+  // 已归档礼簿恢复为收尾中（需二次确认）
+  const handleUnarchive = () => {
+    if (!unarchiveId) return
+    const idToUnarchive = unarchiveId
+    setUnarchiveId(null)
+    unarchiveMutation.mutate(idToUnarchive, {
+      onSuccess: () => {
+        showToast('已恢复为收尾中')
+      },
+      onError: (e) => {
+        showToast('操作失败：' + e.message)
+      },
+    })
+  }
+
   const Card = ({ gb }: { gb: (typeof guestbooks)[number] }) => {
     const pct = gb.total_records > 0
       ? Math.round((gb.checked_count / gb.total_records) * 100)
       : 0
     return (
-      <div className="flex h-full flex-col gap-3 rounded-card bg-card p-5 shadow-card transition-shadow hover:shadow-lg">
+      <div className="mx-auto flex h-full w-full max-w-[350px] flex-col gap-3 rounded-card bg-card p-5 shadow-card transition-shadow hover:shadow-lg">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -414,6 +432,16 @@ export function GuestbookListPage() {
               进入收礼
             </Link>
           )}
+          {/* 收尾中可继续补录宾客记录（F-2.8 收尾期补录） */}
+          {gb.status === 'closing' && (
+            <Link
+              to="/guestbooks/$id/collect"
+              params={{ id: String(gb.id) }}
+              className="flex-1 rounded-btn bg-primary py-2.5 text-center text-sm font-semibold text-white"
+            >
+              进入补录
+            </Link>
+          )}
           {gb.status === 'active' && (
             <button
               onClick={() => gb.id && setInviteGuestbookId(gb.id)}
@@ -435,6 +463,15 @@ export function GuestbookListPage() {
               onClick={() => alert('合并向导功能即将推出')}
             >
               合并
+            </button>
+          )}
+          {gb.status === 'archived' && (
+            <button
+              onClick={() => gb.id && setUnarchiveId(gb.id)}
+              className="rounded-btn border border-warning px-4 py-2.5 text-sm font-medium text-warning hover:bg-warning/10"
+              title="恢复为收尾中，可继续补录和修正"
+            >
+              恢复收尾中
             </button>
           )}
         </div>
@@ -475,7 +512,7 @@ export function GuestbookListPage() {
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="text-sm font-bold text-ink">进行中的礼簿</h2>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 min-[950px]:grid-cols-2 min-[1380px]:grid-cols-3">
                 {active.map((gb) => (
                   <Card key={gb.id} gb={gb} />
                 ))}
@@ -487,7 +524,7 @@ export function GuestbookListPage() {
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="text-sm font-bold text-ink-secondary">已归档的礼簿</h2>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 min-[950px]:grid-cols-2 min-[1380px]:grid-cols-3">
                 {archived.map((gb) => (
                   <Card key={gb.id} gb={gb} />
                 ))}
@@ -508,6 +545,17 @@ export function GuestbookListPage() {
         loading={deleteMutation.isPending}
       />
 
+      <ConfirmDialog
+        open={unarchiveId !== null}
+        title="恢复为收尾中"
+        message="将该礼簿从已归档恢复为收尾中？恢复后可以补录和修正记录，确认无误后可重新归档。"
+        variant="warning"
+        confirmLabel="恢复"
+        onConfirm={handleUnarchive}
+        onCancel={() => setUnarchiveId(null)}
+        loading={unarchiveMutation.isPending}
+      />
+
       {inviteGuestbookId !== null && (
         <InviteModal
           guestbookId={inviteGuestbookId}
@@ -524,8 +572,10 @@ export function GuestbookListPage() {
 
 const eventTypes = [
   { value: 'wedding', label: '婚礼' },
+  { value: 'engagement', label: '订婚' },
   { value: 'fullmoon', label: '满月酒' },
   { value: 'birthday', label: '周岁宴' },
+  { value: 'birthday_banquet', label: '生日/寿宴' },
   { value: 'housewarming', label: '乔迁' },
   { value: 'graduation', label: '升学宴' },
   { value: 'funeral', label: '丧葬' },

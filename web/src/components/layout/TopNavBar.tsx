@@ -23,6 +23,27 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
   )
 }
 
+function HomeLink() {
+  const location = useRouterState({ select: (s) => s.location })
+  // 首页仅在路径为 / 时激活（不能用 startsWith，否则所有页面都匹配）
+  const isActive = location.pathname === '/'
+  return (
+    <Link to="/" className="text-lg font-bold text-white">
+      🧧 礼云随笔
+      {/* 「首页」与右侧导航项同一套激活态模式 */}
+      <span
+        className={`ml-1.5 rounded-md px-1.5 py-0.5 align-middle text-xs font-normal transition-colors ${
+          isActive
+            ? 'bg-primary-light/20 text-primary-light'
+            : 'bg-white/10 text-white/60 hover:text-white'
+        }`}
+      >
+        首页
+      </span>
+    </Link>
+  )
+}
+
 function UserMenu() {
   const navigate = useNavigate()
   const user = getCurrentUser()
@@ -51,9 +72,7 @@ export default function TopNavBar() {
   return (
     <header className="sticky top-0 z-10 bg-ink text-white">
       <div className="flex h-16 w-full items-center gap-8 px-8">
-        <Link to="/" className="text-lg font-bold text-white">
-          🧧 礼云随笔
-        </Link>
+        <HomeLink />
         <nav className="flex gap-6">
           {navItems.map((item) => (
             <NavLink key={item.to} to={item.to}>

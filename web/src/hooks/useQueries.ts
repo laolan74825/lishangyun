@@ -158,6 +158,18 @@ export function useArchiveGuestbook() {
   })
 }
 
+/** 已归档礼簿恢复为收尾中（archived → closing），成功后失效礼簿缓存，状态即时刷新 */
+export function useUnarchiveGuestbook() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.unarchiveGuestbook(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.detail(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.all })
+    },
+  })
+}
+
 /* ========================= 收礼记录（GbRecords）查询 Hooks =========================
  *
  * 收礼记录是礼簿中的核心数据，记录每位宾客的随礼信息。

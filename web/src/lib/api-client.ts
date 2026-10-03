@@ -89,6 +89,10 @@ export async function archiveGuestbook(id: number): Promise<void> {
   await api.post(`/guestbooks/${id}/archive`)
 }
 
+export async function unarchiveGuestbook(id: number): Promise<void> {
+  await api.post(`/guestbooks/${id}/unarchive`)
+}
+
 export async function deleteGuestbook(id: number): Promise<void> {
   await api.delete(`/guestbooks/${id}`)
 }

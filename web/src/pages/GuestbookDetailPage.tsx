@@ -25,6 +25,7 @@ import {
   useCloseGuestbook,
   useReopenGuestbook,
   useArchiveGuestbook,
+  useUnarchiveGuestbook,
 } from '../hooks/useQueries'
 
 type TabKey = 'records' | 'reconciliation' | 'accounts' | 'trash' | 'logs'
@@ -59,7 +60,7 @@ export default function GuestbookDetailPage() {
 
   /* 确认弹窗 */
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'complete' | 'archive' | 'reopen' | 'deleteRecord'
+    type: 'complete' | 'archive' | 'reopen' | 'unarchive' | 'deleteRecord'
     recordId?: number
   } | null>(null)
   const [closingSummary, setClosingSummary] = useState('')
@@ -68,6 +69,7 @@ export default function GuestbookDetailPage() {
   const closeMutation = useCloseGuestbook()
   const reopenMutation = useReopenGuestbook()
   const archiveMutation = useArchiveGuestbook()
+  const unarchiveMutation = useUnarchiveGuestbook()
 
   /* 结束礼簿（进入收尾中），可填写收礼总结说明 */
   const handleComplete = async () => {
@@ -97,6 +99,17 @@ export default function GuestbookDetailPage() {
     try {
       await archiveMutation.mutateAsync(guestbookId)
       showToast('礼簿已归档')
+    } catch (e) {
+      showToast('操作失败：' + (e as Error).message)
+    }
+    setConfirmAction(null)
+  }
+
+  /* 恢复为收尾中（已归档 → 收尾中） */
+  const handleUnarchive = async () => {
+    try {
+      await unarchiveMutation.mutateAsync(guestbookId)
+      showToast('礼簿已恢复为收尾中')
     } catch (e) {
       showToast('操作失败：' + (e as Error).message)
     }
@@ -256,6 +269,16 @@ export default function GuestbookDetailPage() {
               </button>
             </>
           )}
+          {/* 收尾中可继续补录宾客记录（F-2.8 收尾期补录） */}
+          {guestbook?.status === 'closing' && (
+            <Link
+              to="/guestbooks/$id/collect"
+              params={{ id: String(guestbookId) }}
+              className="rounded-btn bg-primary px-4 py-2 text-sm font-semibold text-white"
+            >
+              进入补录
+            </Link>
+          )}
           {guestbook?.status === 'closing' && (
             <>
               <button
@@ -271,6 +294,14 @@ export default function GuestbookDetailPage() {
                 归档礼簿
               </button>
             </>
+          )}
+          {guestbook?.status === 'archived' && (
+            <button
+              onClick={() => setConfirmAction({ type: 'unarchive' })}
+              className="rounded-btn border border-warning px-4 py-2 text-sm font-medium text-warning hover:bg-warning/10"
+            >
+              恢复收尾中
+            </button>
           )}
         </div>
       }
@@ -640,6 +671,16 @@ export default function GuestbookDetailPage() {
         onConfirm={handleArchive}
         onCancel={() => setConfirmAction(null)}
         loading={archiveMutation.isPending}
+      />
+      <ConfirmDialog
+        open={confirmAction?.type === 'unarchive'}
+        title="恢复为收尾中"
+        message="将该礼簿从已归档恢复为收尾中？恢复后可以补录和修正记录，确认无误后可重新归档。"
+        variant="warning"
+        confirmLabel="恢复"
+        onConfirm={handleUnarchive}
+        onCancel={() => setConfirmAction(null)}
+        loading={unarchiveMutation.isPending}
       />
       <ConfirmDialog
         open={confirmAction?.type === 'deleteRecord'}
