@@ -79,13 +79,16 @@ export default function PersonDetailPage() {
     }
 
     for (const r of gbRecords) {
+      // 事由：优先礼簿事由（中文映射），无事由时以礼簿名称作为事由
+      const et = r.guestbook_event_type
+      const eventLabel = et ? (EVENT_TYPE_LABELS[et] ?? et) : (r.guestbook_name ?? '礼簿收款')
       items.push({
         type: 'gb',
         date: r.record_time?.slice(0, 10) ?? '',
         amount: r.amount,
         direction: 'in',
-        eventLabel: `礼簿收款`,
-        source: `礼簿 #${r.guestbook_id}`,
+        eventLabel,
+        source: r.guestbook_name ? `礼簿 · ${r.guestbook_name}` : `礼簿 #${r.guestbook_id}`,
         record: r,
       })
     }

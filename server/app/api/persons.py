@@ -10,10 +10,11 @@ from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.helpers import paginate_query, write_audit_log
 from app.models.daily_record import DailyRecord
 from app.models.gb_record import GbRecord
+from app.models.guestbook import Guestbook
 from app.models.person import Person
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.person import PersonCreate, PersonMergeRequest, PersonMergeResult, PersonResponse, PersonTransactionSummary, PersonUpdate
+from app.schemas.person import PersonCreate, PersonMergeRequest, PersonMergeResult, PersonResponse, PersonSummaryGbRecord, PersonTransactionSummary, PersonUpdate
 
 router = APIRouter(prefix="/persons", tags=["persons"])
 
@@ -167,7 +168,42 @@ async def person_summary(person_id: int, current_user: CurrentUser, db: DbSessio
                GbRecord.is_deleted == False)
     )).scalar_one()
     total_in = daily_in + gb_total
-    return PersonTransactionSummary(total_out=daily_out, total_in=total_in, net=total_in - daily_out)
+
+    # 来往明细：日常往来 + 礼簿收礼（附礼簿名称/事由）
+    daily_records = (await db.execute(
+        select(DailyRecord)
+        .where(DailyRecord.owner_id == current_user.id, DailyRecord.person_id == person_id,
+               DailyRecord.is_deleted == False)
+        .order_by(DailyRecord.event_date.desc())
+    )).scalars().all()
+
+    gb_rows = (await db.execute(
+        select(GbRecord, Guestbook.name, Guestbook.event_type)
+        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
+        .where(GbRecord.owner_id == current_user.id, GbRecord.person_id == person_id,
+               GbRecord.is_deleted == False)
+        .order_by(GbRecord.record_time.desc())
+    )).all()
+    gb_records = [
+        PersonSummaryGbRecord(
+            id=r.id,
+            guestbook_id=r.guestbook_id,
+            guestbook_name=gb_name,
+            guestbook_event_type=gb_event_type or "",
+            guest_name=r.guest_name,
+            amount=r.amount,
+            payment_method=r.payment_method,
+            record_time=r.record_time,
+            note=r.note,
+            agent_name=r.agent_name,
+        )
+        for r, gb_name, gb_event_type in gb_rows
+    ]
+
+    return PersonTransactionSummary(
+        total_out=daily_out, total_in=total_in, net=total_in - daily_out,
+        daily_records=daily_records, gb_records=gb_records,
+    )
 
 
 @router.post("/merge", response_model=PersonMergeResult)

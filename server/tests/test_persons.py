@@ -116,6 +116,53 @@ class TestPersonSummary:
         assert data["total_in"] == 0
         assert data["total_out"] == 0
         assert data["net"] == 0
+        assert data["daily_records"] == []
+        assert data["gb_records"] == []
+
+    async def test_summary_includes_daily_and_gb_records(self, client, admin_headers, db_session):
+        """来往明细：summary 返回日常往来与礼簿收礼明细，礼簿记录附礼簿名称/事由"""
+        resp_create = client.post("/api/persons/", json={"name": "张三"}, headers=admin_headers)
+        person_id = resp_create.json()
+
+        # 礼簿 + 礼簿收礼记录（关联该人员）
+        resp_gb = client.post("/api/guestbooks/", json={
+            "name": "张三家婚宴",
+            "event_type": "wedding",
+            "event_date": "2026-10-01",
+        }, headers=admin_headers)
+        gb_id = resp_gb.json()["id"]
+        client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "张三",
+            "amount": 50000,
+            "payment_method": "cash",
+            "person_id": person_id,
+        }, headers=admin_headers)
+
+        # 日常往来记录（送出去）
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_id": person_id,
+            "person_name": "张三",
+            "amount": 20000,
+            "event_type": "婚礼",
+            "event_date": "2026-09-01",
+        }, headers=admin_headers)
+
+        resp = client.get(f"/api/persons/{person_id}/summary", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_in"] == 50000
+        assert data["total_out"] == 20000
+
+        assert len(data["daily_records"]) == 1
+        assert data["daily_records"][0]["event_type"] == "婚礼"
+
+        assert len(data["gb_records"]) == 1
+        gb = data["gb_records"][0]
+        assert gb["guestbook_id"] == gb_id
+        assert gb["guestbook_name"] == "张三家婚宴"
+        assert gb["guestbook_event_type"] == "wedding"
+        assert gb["amount"] == 50000
 
 
 class TestPersonAuditLog:

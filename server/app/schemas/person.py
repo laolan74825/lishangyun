@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.daily_record import DailyRecordResponse
+
 RelationshipTag = Literal["relative", "friend", "colleague", "classmate", "neighbor", "other"]
 
 
@@ -43,10 +45,26 @@ class PersonResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PersonSummaryGbRecord(BaseModel):
+    """人员来往明细中的礼簿收礼记录（附礼簿名称/事由，供前端展示事由）"""
+    id: int
+    guestbook_id: int
+    guestbook_name: str
+    guestbook_event_type: str
+    guest_name: str
+    amount: int
+    payment_method: str
+    record_time: datetime
+    note: str | None = None
+    agent_name: str | None = None
+
+
 class PersonTransactionSummary(BaseModel):
     total_out: int
     total_in: int
     net: int
+    daily_records: list[DailyRecordResponse] = []
+    gb_records: list[PersonSummaryGbRecord] = []
 
 
 class PersonMergeRequest(BaseModel):

@@ -688,8 +688,10 @@ export async function getPersonDailyRecords(personId: number): Promise<DailyReco
   return summary.daily_records || []
 }
 
-export async function getPersonGbRecords(personId: number): Promise<GbRecord[]> {
-  const summary = await api.get<{ gb_records: GbRecord[] }>(`/persons/${personId}/summary`)
+export async function getPersonGbRecords(
+  personId: number,
+): Promise<(GbRecord & { guestbook_name?: string; guestbook_event_type?: string })[]> {
+  const summary = await api.get<{ gb_records: (GbRecord & { guestbook_name?: string; guestbook_event_type?: string })[] }>(`/persons/${personId}/summary`)
   return summary.gb_records || []
 }
 
