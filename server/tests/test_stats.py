@@ -89,6 +89,53 @@ class TestTransactionByName:
         assert data["total_in"] == 80000
         assert data["total_out"] == 0
         assert data["net"] == 80000
+        # 明细与计数随响应返回（人员管理页展开卡片依赖）
+        assert data["daily_count"] == 0
+        assert data["gb_count"] == 2
+        assert len(data["gb_records"]) == 2
+        assert {r["guestbook_name"] for r in data["gb_records"]} == {"测试礼簿"}
+
+    async def test_transaction_includes_linked_records_and_adjustments(
+        self, client, admin_headers, db_session
+    ):
+        """按姓名查询覆盖：①person_id 关联（合并改名场景）的记录 ②差额调整计入净差额 ③日常明细返回"""
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+
+        # 人员「王五」并直接关联一条礼簿记录（guest_name 与人员名不同，仅 person_id 关联）
+        person_id = client.post("/api/persons/", json={
+            "name": "王五", "relationship_tag": "friend",
+        }, headers=admin_headers).json()
+        client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "王小五",
+            "amount": 50000,
+            "payment_method": "cash",
+            "person_id": person_id,
+        }, headers=admin_headers)
+        # 同名日常记录
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_name": "王五",
+            "amount": 20000,
+            "event_type": "婚礼",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers)
+        # 差额调整 +300
+        client.post("/api/balance-adjustments/", json={
+            "person_id": person_id,
+            "amount": 30000,
+            "reason": "补记",
+        }, headers=admin_headers)
+
+        resp = client.get("/api/stats/transaction-by-name?name=王五", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_out"] == 20000
+        assert data["total_in"] == 50000
+        assert data["adjustment_total"] == 30000
+        # 净差额 = 收到 50000 - 送出 20000 + 调整 30000
+        assert data["net"] == 60000
+        assert data["daily_count"] == 1
+        assert data["gb_count"] == 1
 
 
 class TestStatsIsolation:

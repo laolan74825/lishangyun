@@ -290,6 +290,11 @@ export default function PersonDetailPage() {
                   <span className="text-ink-secondary">{adj.reason}</span>
                 </div>
               ))}
+              {txSummary && txSummary.adjustment_total !== 0 && (
+                <p className="text-right text-xs text-ink-secondary">
+                  差额调整合计 {txSummary.adjustment_total >= 0 ? '+' : ''}¥{formatAmount(txSummary.adjustment_total)}，已计入上方净差额
+                </p>
+              )}
             </div>
           ) : (
             !showAdjustForm && <p className="mt-4 text-center text-sm text-ink-secondary">暂无调整记录</p>

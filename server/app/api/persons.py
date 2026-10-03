@@ -13,6 +13,7 @@ from app.models.daily_record import DailyRecord
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
 from app.models.person import Person
+from app.models.person_balance_adjustment import PersonBalanceAdjustment
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.person import PersonCreate, PersonMergeRequest, PersonMergeResult, PersonResponse, PersonSummaryGbRecord, PersonTransactionSummary, PersonUpdate
@@ -170,6 +171,13 @@ async def person_summary(person_id: int, current_user: CurrentUser, db: DbSessio
     )).scalar_one()
     total_in = daily_in + gb_total
 
+    # 差额调整：手动修正的往来差额计入净差额
+    adjustment_total = (await db.execute(
+        select(func.coalesce(func.sum(PersonBalanceAdjustment.amount), 0))
+        .where(PersonBalanceAdjustment.owner_id == current_user.id,
+               PersonBalanceAdjustment.person_id == person_id)
+    )).scalar_one()
+
     # 来往明细：日常往来 + 礼簿收礼（附礼簿名称/事由）
     daily_records = (await db.execute(
         select(DailyRecord)
@@ -202,7 +210,8 @@ async def person_summary(person_id: int, current_user: CurrentUser, db: DbSessio
     ]
 
     return PersonTransactionSummary(
-        total_out=daily_out, total_in=total_in, net=total_in - daily_out,
+        total_out=daily_out, total_in=total_in, adjustment_total=adjustment_total,
+        net=total_in - daily_out + adjustment_total,
         daily_records=daily_records, gb_records=gb_records,
     )
 

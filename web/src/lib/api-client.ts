@@ -696,7 +696,7 @@ export async function getPersonGbRecords(
 }
 
 export async function getPersonTransactionSummary(personId: number) {
-  return api.get<{ total_out: number; total_in: number; net: number }>(`/persons/${personId}/summary`)
+  return api.get<{ total_out: number; total_in: number; adjustment_total: number; net: number }>(`/persons/${personId}/summary`)
 }
 
 /** 补关联维护：把未关联人员的历史记录按「姓名+电话」批量关联到人员库 */

@@ -62,6 +62,7 @@ class PersonSummaryGbRecord(BaseModel):
 class PersonTransactionSummary(BaseModel):
     total_out: int
     total_in: int
+    adjustment_total: int = 0
     net: int
     daily_records: list[DailyRecordResponse] = []
     gb_records: list[PersonSummaryGbRecord] = []

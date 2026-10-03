@@ -8,6 +8,8 @@ from app.models.daily_record import DailyRecord
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
 from app.models.person import Person
+from app.models.person_balance_adjustment import PersonBalanceAdjustment
+from app.schemas.person import PersonSummaryGbRecord
 from app.schemas.stats import (
     EventDistributionItem,
     GuestbookStatsItem,
@@ -111,21 +113,34 @@ async def person_ranking(
         .subquery()
     )
 
+    adj_q = (
+        select(
+            PersonBalanceAdjustment.person_id,
+            func.coalesce(func.sum(PersonBalanceAdjustment.amount), 0).label("adj_total"),
+        )
+        .where(PersonBalanceAdjustment.owner_id == current_user.id)
+        .group_by(PersonBalanceAdjustment.person_id)
+        .subquery()
+    )
+
     result = await db.execute(
         select(
             Person.id.label("person_id"),
             Person.name.label("person_name"),
             func.coalesce(daily_out_q.c.total_out, 0).label("total_out"),
             (func.coalesce(daily_in_q.c.daily_in, 0) + func.coalesce(gb_q.c.gb_total, 0)).label("total_in"),
+            func.coalesce(adj_q.c.adj_total, 0).label("adjustment_total"),
         )
         .outerjoin(daily_out_q, Person.id == daily_out_q.c.person_id)
         .outerjoin(daily_in_q, Person.id == daily_in_q.c.person_id)
         .outerjoin(gb_q, Person.id == gb_q.c.person_id)
+        .outerjoin(adj_q, Person.id == adj_q.c.person_id)
         .where(Person.owner_id == current_user.id, Person.is_deleted == False)
         .order_by(
             func.abs(
                 func.coalesce(daily_in_q.c.daily_in, 0)
                 + func.coalesce(gb_q.c.gb_total, 0)
+                + func.coalesce(adj_q.c.adj_total, 0)
                 - func.coalesce(daily_out_q.c.total_out, 0)
             ).desc()
         )
@@ -138,7 +153,7 @@ async def person_ranking(
             person_name=row.person_name,
             total_out=row.total_out,
             total_in=row.total_in,
-            net=row.total_in - row.total_out,
+            net=row.total_in - row.total_out + row.adjustment_total,
         )
         for row in result.all()
     ]
@@ -150,23 +165,71 @@ async def transaction_by_name(
     db: DbSession,
     name: str = Query(...),
 ):
-    daily_out = (await db.execute(
-        select(func.coalesce(func.sum(DailyRecord.amount), 0))
-        .where(DailyRecord.owner_id == current_user.id, DailyRecord.person_name == name,
-               DailyRecord.type == "out", DailyRecord.is_deleted == False)
-    )).scalar_one()
-    daily_in = (await db.execute(
-        select(func.coalesce(func.sum(DailyRecord.amount), 0))
-        .where(DailyRecord.owner_id == current_user.id, DailyRecord.person_name == name,
-               DailyRecord.type == "in", DailyRecord.is_deleted == False)
-    )).scalar_one()
-    gb_total = (await db.execute(
-        select(func.coalesce(func.sum(GbRecord.amount), 0))
-        .where(GbRecord.owner_id == current_user.id, GbRecord.guest_name == name,
+    """按姓名汇总往来：净差额含差额调整；明细含按姓名或人员关联的记录。
+
+    记录匹配口径：person_name/guest_name 等于该姓名，或记录已关联到同名人
+    员（person_id），覆盖「人员合并」后记录改挂到目标人员的场景。
+    """
+    person_ids = (await db.execute(
+        select(Person.id)
+        .where(Person.owner_id == current_user.id, Person.name == name,
+               Person.is_deleted == False)
+    )).scalars().all()
+
+    daily_match = DailyRecord.person_name == name
+    gb_match = GbRecord.guest_name == name
+    if person_ids:
+        daily_match = daily_match | DailyRecord.person_id.in_(person_ids)
+        gb_match = gb_match | GbRecord.person_id.in_(person_ids)
+
+    daily_records = (await db.execute(
+        select(DailyRecord)
+        .where(DailyRecord.owner_id == current_user.id, daily_match,
+               DailyRecord.is_deleted == False)
+        .order_by(DailyRecord.event_date.desc())
+    )).scalars().all()
+
+    gb_rows = (await db.execute(
+        select(GbRecord, Guestbook.name, Guestbook.event_type)
+        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
+        .where(GbRecord.owner_id == current_user.id, gb_match,
                GbRecord.is_deleted == False)
-    )).scalar_one()
+        .order_by(GbRecord.record_time.desc())
+    )).all()
+    gb_records = [
+        PersonSummaryGbRecord(
+            id=r.id,
+            guestbook_id=r.guestbook_id,
+            guestbook_name=gb_name,
+            guestbook_event_type=gb_event_type or "",
+            guest_name=r.guest_name,
+            amount=r.amount,
+            payment_method=r.payment_method,
+            record_time=r.record_time,
+            note=r.note,
+            agent_name=r.agent_name,
+        )
+        for r, gb_name, gb_event_type in gb_rows
+    ]
+
+    adjustment_total = 0
+    if person_ids:
+        adjustment_total = (await db.execute(
+            select(func.coalesce(func.sum(PersonBalanceAdjustment.amount), 0))
+            .where(PersonBalanceAdjustment.owner_id == current_user.id,
+                   PersonBalanceAdjustment.person_id.in_(person_ids))
+        )).scalar_one()
+
+    daily_out = sum(r.amount for r in daily_records if r.type == "out")
+    daily_in = sum(r.amount for r in daily_records if r.type == "in")
+    gb_total = sum(r.amount for r in gb_records)
     total_in = daily_in + gb_total
-    return TransactionSummaryByName(total_out=daily_out, total_in=total_in, net=total_in - daily_out)
+    return TransactionSummaryByName(
+        total_out=daily_out, total_in=total_in, adjustment_total=adjustment_total,
+        net=total_in - daily_out + adjustment_total,
+        daily_count=len(daily_records), gb_count=len(gb_records),
+        daily_records=daily_records, gb_records=gb_records,
+    )
 
 
 @router.get("/monthly-trend", response_model=list[MonthlyTrendItem])
