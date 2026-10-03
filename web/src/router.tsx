@@ -17,6 +17,7 @@ import RecordsListPage from './pages/RecordsListPage'
 import CollectPage from './pages/CollectPage'
 import { GuestbookListPage, GuestbookNewPage } from './pages/GuestbookPage'
 import GuestbookDetailPage from './pages/GuestbookDetailPage'
+import GuestbookMergePage from './pages/GuestbookMergePage'
 import AccountsPage from './pages/AccountsPage'
 import PeoplePage from './pages/PeoplePage'
 import PersonDetailPage from './pages/PersonDetailPage'
@@ -107,6 +108,12 @@ const guestbookDetailRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/guestbooks/$id',
   component: GuestbookDetailPage,
+})
+
+const guestbookMergeRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/guestbooks/$id/merge',
+  component: GuestbookMergePage,
 })
 
 const collectRoute = createRoute({
@@ -256,6 +263,7 @@ const routeTree = rootRoute.addChildren([
     guestbooksRoute,
     guestbooksNewRoute,
     guestbookDetailRoute,
+    guestbookMergeRoute,
     collectRoute,
     terminalSettingsRoute,
     accountsRoute,

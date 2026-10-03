@@ -1,5 +1,7 @@
+from datetime import date, datetime, timezone
+
 from fastapi import APIRouter, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union
 
 from app.core.dependencies import CurrentUser, DbSession
 from app.models.daily_record import DailyRecord
@@ -10,11 +12,53 @@ from app.schemas.stats import (
     EventDistributionItem,
     GuestbookStatsItem,
     MonthlyTrendItem,
+    OverviewSummary,
     PersonRankingItem,
     TransactionSummaryByName,
 )
 
 router = APIRouter(prefix="/stats", tags=["stats"])
+
+
+@router.get("/overview", response_model=OverviewSummary)
+async def overview_summary(
+    current_user: CurrentUser,
+    db: DbSession,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    """首页总览汇总：日常随礼 + 礼簿现场收礼。
+
+    - 日常记录按 event_date 过滤；礼簿记录按 record_time 过滤
+    - 礼簿收礼全部计入"收到"（total_in），与人员/统计模块口径一致
+    """
+    daily_base = [DailyRecord.owner_id == current_user.id, DailyRecord.is_deleted == False]
+    if start_date:
+        daily_base.append(DailyRecord.event_date >= start_date)
+    if end_date:
+        daily_base.append(DailyRecord.event_date <= end_date)
+
+    daily_out = (await db.execute(
+        select(func.coalesce(func.sum(DailyRecord.amount), 0)).where(*daily_base, DailyRecord.type == "out")
+    )).scalar_one()
+    daily_in = (await db.execute(
+        select(func.coalesce(func.sum(DailyRecord.amount), 0)).where(*daily_base, DailyRecord.type == "in")
+    )).scalar_one()
+
+    gb_base = [GbRecord.owner_id == current_user.id, GbRecord.is_deleted == False]
+    # record_time 以无时区 UTC 存储，"某天"按本地日期理解，需换算为 UTC 时间范围避免时区错位漏数
+    if start_date:
+        start_dt = datetime.combine(start_date, datetime.min.time()).astimezone(timezone.utc).replace(tzinfo=None)
+        gb_base.append(GbRecord.record_time >= start_dt)
+    if end_date:
+        end_dt = datetime.combine(end_date, datetime.max.time()).astimezone(timezone.utc).replace(tzinfo=None)
+        gb_base.append(GbRecord.record_time <= end_dt)
+    gb_in = (await db.execute(
+        select(func.coalesce(func.sum(GbRecord.amount), 0)).where(*gb_base)
+    )).scalar_one()
+
+    total_in = daily_in + gb_in
+    return OverviewSummary(total_out=daily_out, total_in=total_in, net=total_in - daily_out)
 
 
 @router.get("/person-ranking", response_model=list[PersonRankingItem])
@@ -131,9 +175,16 @@ async def monthly_trend(
     db: DbSession,
     months: int = Query(12, ge=1, le=36),
 ):
+    """最近 N 个月收支趋势：收到 = 日常收 + 礼簿收礼，送出 = 日常送。
+
+    月份集合取三种来源的并集，避免只有单边数据的月份整条缺失。
+    """
+    daily_month = func.date_trunc("month", DailyRecord.event_date)
+    gb_month = func.date_trunc("month", GbRecord.record_time)
+
     daily_sent_q = (
         select(
-            func.to_char(func.date_trunc("month", DailyRecord.event_date), "YYYY-MM").label("month"),
+            daily_month.label("m"),
             func.coalesce(func.sum(DailyRecord.amount), 0).label("total"),
         )
         .where(
@@ -141,13 +192,13 @@ async def monthly_trend(
             DailyRecord.type == "out",
             DailyRecord.is_deleted == False,
         )
-        .group_by(func.date_trunc("month", DailyRecord.event_date))
+        .group_by(daily_month)
         .subquery()
     )
 
     daily_recv_q = (
         select(
-            func.to_char(func.date_trunc("month", DailyRecord.event_date), "YYYY-MM").label("month"),
+            daily_month.label("m"),
             func.coalesce(func.sum(DailyRecord.amount), 0).label("total"),
         )
         .where(
@@ -155,42 +206,44 @@ async def monthly_trend(
             DailyRecord.type == "in",
             DailyRecord.is_deleted == False,
         )
-        .group_by(func.date_trunc("month", DailyRecord.event_date))
+        .group_by(daily_month)
         .subquery()
     )
 
     gb_recv_q = (
         select(
-            func.to_char(func.date_trunc("month", GbRecord.record_time), "YYYY-MM").label("month"),
+            gb_month.label("m"),
             func.coalesce(func.sum(GbRecord.amount), 0).label("total"),
         )
         .where(
             GbRecord.owner_id == current_user.id,
             GbRecord.is_deleted == False,
         )
-        .group_by(func.date_trunc("month", GbRecord.record_time))
+        .group_by(gb_month)
         .subquery()
     )
 
-    all_months = (
-        select(daily_sent_q.c.month.label("month")).subquery()
-    )
+    all_months = union(
+        select(daily_sent_q.c.m),
+        select(daily_recv_q.c.m),
+        select(gb_recv_q.c.m),
+    ).subquery()
 
     result = await db.execute(
         select(
-            all_months.c.month,
-            func.coalesce(gb_recv_q.c.total, 0) + func.coalesce(daily_recv_q.c.total, 0),
-            func.coalesce(daily_sent_q.c.total, 0),
+            func.to_char(all_months.c.m, "YYYY-MM").label("month"),
+            (func.coalesce(gb_recv_q.c.total, 0) + func.coalesce(daily_recv_q.c.total, 0)).label("received"),
+            func.coalesce(daily_sent_q.c.total, 0).label("sent"),
         )
-        .outerjoin(daily_sent_q, all_months.c.month == daily_sent_q.c.month)
-        .outerjoin(daily_recv_q, all_months.c.month == daily_recv_q.c.month)
-        .outerjoin(gb_recv_q, all_months.c.month == gb_recv_q.c.month)
-        .order_by(all_months.c.month.desc())
+        .outerjoin(daily_sent_q, all_months.c.m == daily_sent_q.c.m)
+        .outerjoin(daily_recv_q, all_months.c.m == daily_recv_q.c.m)
+        .outerjoin(gb_recv_q, all_months.c.m == gb_recv_q.c.m)
+        .order_by(all_months.c.m.desc())
         .limit(months)
     )
 
     return [
-        MonthlyTrendItem(month=row[0], received=row[1], sent=row[2])
+        MonthlyTrendItem(month=row.month, received=row.received, sent=row.sent)
         for row in result.all()
     ]
 
@@ -200,28 +253,53 @@ async def event_distribution(
     current_user: CurrentUser,
     db: DbSession,
 ):
-    daily_q = (
+    """按事由统计收到的礼金：日常（收）+ 礼簿收礼（按所属礼簿的事由）。"""
+    daily_result = await db.execute(
         select(
             DailyRecord.event_type,
-            func.sum(DailyRecord.amount).label("total_amount"),
+            func.coalesce(func.sum(DailyRecord.amount), 0).label("total_amount"),
             func.count(DailyRecord.id).label("record_count"),
         )
         .where(
             DailyRecord.owner_id == current_user.id,
-            DailyRecord.type == "out",
+            DailyRecord.type == "in",
             DailyRecord.is_deleted == False,
         )
         .group_by(DailyRecord.event_type)
     )
-    result = await db.execute(daily_q)
-    return [
-        EventDistributionItem(
+
+    gb_result = await db.execute(
+        select(
+            Guestbook.event_type,
+            func.coalesce(func.sum(GbRecord.amount), 0).label("total_amount"),
+            func.count(GbRecord.id).label("record_count"),
+        )
+        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
+        .where(
+            GbRecord.owner_id == current_user.id,
+            GbRecord.is_deleted == False,
+        )
+        .group_by(Guestbook.event_type)
+    )
+
+    merged: dict[str, EventDistributionItem] = {}
+    for row in daily_result.all():
+        merged[row.event_type] = EventDistributionItem(
             event_type=row.event_type,
             total_amount=row.total_amount,
             record_count=row.record_count,
         )
-        for row in result.all()
-    ]
+    for row in gb_result.all():
+        if row.event_type in merged:
+            merged[row.event_type].total_amount += row.total_amount
+            merged[row.event_type].record_count += row.record_count
+        else:
+            merged[row.event_type] = EventDistributionItem(
+                event_type=row.event_type,
+                total_amount=row.total_amount,
+                record_count=row.record_count,
+            )
+    return sorted(merged.values(), key=lambda x: x.total_amount, reverse=True)
 
 
 @router.get("/guestbook-summary", response_model=list[GuestbookStatsItem])

@@ -7,15 +7,16 @@ from sqlalchemy import func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.guestbook_access import get_guestbook_access
-from app.core.helpers import paginate_query, write_audit_log
+from app.core.helpers import match_person_id, paginate_query, write_audit_log
 from app.models.authorization_action_log import AuthorizationActionLog
 from app.models.collaboration_invite import CollaborationInvite
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
+from app.models.person import Person
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.gb_record import GbRecordBatchCreate, GbRecordCreate, GbRecordResponse
-from app.schemas.guestbook import GuestbookCloseRequest, GuestbookCreate, GuestbookResponse, GuestbookSummary, GuestbookUpdate
+from app.schemas.guestbook import GuestbookCloseRequest, GuestbookCreate, GuestbookResponse, GuestbookSummary, GuestbookUpdate, MergeCreatePersonsRequest
 from app.utils.idempotency import new_uuid
 
 router = APIRouter(prefix="/guestbooks", tags=["guestbooks"])
@@ -70,6 +71,7 @@ async def list_summaries(current_user: CurrentUser, db: DbSession):
             id=g.id, name=g.name, event_type=g.event_type, event_date=g.event_date,
             status=g.status, total_records=total_records, total_amount=total_amount,
             checked_count=checked_count, unchecked_count=total_records - checked_count,
+            person_merged_at=g.person_merged_at,
         ))
     return summaries
 
@@ -286,6 +288,114 @@ async def unarchive_guestbook(
     return {"message": "礼簿已恢复为收尾中"}
 
 
+# 礼簿合并：将礼簿内未关联人员库的记录按宾客姓名/电话建立 person_id 关联（不搬迁数据）
+# 执行后标记 person_merged_at；已合并礼簿后续的修改/补录会自动解析 person_id 保持同步
+@router.post("/{guestbook_id}/merge-persons")
+async def merge_persons_to_library(
+    guestbook_id: int,
+    db: DbSession,
+    current_user: OwnerUser,
+):
+    access = await get_guestbook_access(db, current_user, guestbook_id)
+    gb = access.guestbook
+
+    # 收尾中或已归档的礼簿允许合并；收礼中数据尚不稳定，暂不提供
+    if gb.status == "active":
+        raise HTTPException(status_code=400, detail="收礼中的礼簿暂不能合并，请先结束收礼进入收尾")
+
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.guestbook_id == guestbook_id, GbRecord.is_deleted == False)
+        .order_by(GbRecord.id)
+    )
+    records = result.scalars().all()
+
+    linked = 0      # 本次新建立关联的记录数
+    unmatched = 0   # 无法在人员库匹配到的记录数
+    already = 0     # 已有关联、跳过的记录数
+    for r in records:
+        if r.person_id:
+            already += 1
+            continue
+        pid = await match_person_id(db, current_user.id, r.guest_name, r.phone)
+        if pid is not None:
+            r.person_id = pid
+            linked += 1
+        else:
+            unmatched += 1
+
+    gb.person_merged_at = utcnow()
+    gb.updated_at = utcnow()
+    write_audit_log(
+        db, current_user.id, "guestbook", guestbook_id, "UPDATE",
+        guestbook_id=guestbook_id, operator_name=current_user.username,
+        note=f"礼簿合并到人员库：新关联 {linked} 条，未匹配 {unmatched} 条，已关联 {already} 条",
+    )
+    await db.commit()
+    return {"linked": linked, "unmatched": unmatched, "already_linked": already}
+
+
+# 合并向导「新建人员」：对用户勾选的无法匹配记录，按礼簿数据（姓名+电话）新建人员并关联。
+# 创建前再次按 match_person_id 规则查重——若该人员已被创建/已能匹配，则直接关联，不重复建人。
+@router.post("/{guestbook_id}/merge-persons/create-persons")
+async def merge_create_persons(
+    guestbook_id: int,
+    body: MergeCreatePersonsRequest,
+    db: DbSession,
+    current_user: OwnerUser,
+):
+    access = await get_guestbook_access(db, current_user, guestbook_id)
+    gb = access.guestbook
+
+    # 与合并执行同一约束：收礼中的礼簿不提供
+    if gb.status == "active":
+        raise HTTPException(status_code=400, detail="收礼中的礼簿暂不能合并，请先结束收礼进入收尾")
+
+    result = await db.execute(
+        select(GbRecord).where(
+            GbRecord.guestbook_id == guestbook_id,
+            GbRecord.id.in_(body.record_ids),
+            GbRecord.is_deleted == False,
+        )
+    )
+    records = result.scalars().all()
+
+    created = 0        # 本次新建的人员数
+    linked_existing = 0  # 人员已存在（被并发创建或已可匹配），直接关联
+    skipped = 0        # 已有关联或不属于该礼簿的记录，跳过
+    for r in records:
+        if r.person_id:
+            skipped += 1
+            continue
+        pid = await match_person_id(db, current_user.id, r.guest_name, r.phone)
+        if pid is not None:
+            r.person_id = pid
+            linked_existing += 1
+            continue
+        person = Person(
+            owner_id=current_user.id,
+            name=r.guest_name,
+            phone=r.phone,
+        )
+        db.add(person)
+        await db.flush()
+        write_audit_log(db, current_user.id, "persons", person.id, "CREATE",
+                        operator_name=current_user.username,
+                        after={"name": person.name, "phone": person.phone, "source": "guestbook_merge"})
+        r.person_id = person.id
+        created += 1
+
+    gb.person_merged_at = utcnow()
+    gb.updated_at = utcnow()
+    write_audit_log(
+        db, current_user.id, "guestbook", guestbook_id, "UPDATE",
+        guestbook_id=guestbook_id, operator_name=current_user.username,
+        note=f"合并向导新建人员：新建 {created} 人，关联已有人员 {linked_existing} 条，跳过 {skipped} 条",
+    )
+    await db.commit()
+    return {"created": created, "linked_existing": linked_existing, "skipped": skipped}
+
+
 @router.get("/{guestbook_id}/summary")
 async def guestbook_summary(guestbook_id: int, current_user: CurrentUser, db: DbSession):
     access = await get_guestbook_access(db, current_user, guestbook_id)
@@ -327,17 +437,22 @@ async def proxy_create_records(
     if gb.status == "archived":
         raise HTTPException(status_code=400, detail="已归档的礼簿不可录入")
 
+    operator = body.operator_name or current_user.username
     ids = []
     for item in body.records:
+        # 收尾中补录的记录无需对账，自动标记为已对账
         record = GbRecord(
             uuid=new_uuid(),
             owner_id=gb.owner_id,
             guestbook_id=guestbook_id,
-            check_status="unchecked",
+            check_status="checked" if gb.status == "closing" else "unchecked",
             record_time=item.record_time or utcnow(),
-            operator_name=current_user.username,
-            **item.model_dump(exclude={"record_time"}),
+            operator_name=operator,
+            **item.model_dump(exclude={"record_time", "operator_name", "client_id"}),
         )
+        # 已合并礼簿：补录记录自动解析人员关联
+        if gb.person_merged_at and not record.person_id:
+            record.person_id = await match_person_id(db, gb.owner_id, record.guest_name, record.phone)
         db.add(record)
         await db.flush()
         ids.append(record.id)

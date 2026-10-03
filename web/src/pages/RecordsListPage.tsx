@@ -14,6 +14,20 @@ import {
   useDeleteDailyRecord,
 } from '../hooks/useQueries'
 
+/** 历史记录中可能存的是事由英文编码，展示时映射为中文；自由文本原样展示 */
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  wedding: '婚礼',
+  birthday: '周岁宴',
+  fullmoon: '满月酒',
+  housewarming: '乔迁',
+  graduation: '升学宴',
+  funeral: '丧葬',
+  holiday: '节日红包',
+  other: '其他',
+}
+
+const eventTypeLabel = (v: string) => EVENT_TYPE_LABELS[v] ?? v
+
 /** 明细列表页（需求 F-1.4：按时间倒序、筛选搜索、底部汇总） */
 export default function RecordsListPage() {
   /* 筛选状态 */
@@ -192,7 +206,7 @@ export default function RecordsListPage() {
                   )}
                 </div>
                 <div className="text-xs text-ink-secondary">
-                  {r.event_type} · {r.event_date}
+                  {eventTypeLabel(r.event_type)} · {r.event_date}
                   {r.payment_method && (
                     <span>
                       {' '}
@@ -256,7 +270,7 @@ export default function RecordsListPage() {
         {editing && (
           <>
             <p className="mt-1 text-sm text-ink-secondary">
-              {editing.person_name} · {editing.event_type}
+              {editing.person_name} · {eventTypeLabel(editing.event_type)}
             </p>
             <label className="mt-4 flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">金额（元）</span>

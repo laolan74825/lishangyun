@@ -170,6 +170,36 @@ export function useUnarchiveGuestbook() {
   })
 }
 
+/** 礼簿合并到人员库（建立 person_id 关联），成功后失效礼簿与记录缓存 */
+export function useMergeGuestbookPersons() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.mergeGuestbookPersons(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.detail(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.summaries() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+    },
+  })
+}
+
+/** 合并向导「新建人员」：勾选无法匹配的记录后，按礼簿数据新建人员并关联 */
+export function useMergeCreatePersons() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, recordIds }: { id: number; recordIds: number[] }) =>
+      api.mergeCreatePersons(id, recordIds),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.detail(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.summaries() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.persons.all })
+    },
+  })
+}
+
 /* ========================= 收礼记录（GbRecords）查询 Hooks =========================
  *
  * 收礼记录是礼簿中的核心数据，记录每位宾客的随礼信息。
@@ -300,8 +330,8 @@ export function useDeletedRecords(guestbookId: number) {
 export function useRestoreGbRecord() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, remark }: { id: number; remark?: string }) =>
-      api.restoreGbRecord(id, remark),
+    mutationFn: ({ id, remark, operatorName }: { id: number; remark?: string; operatorName?: string }) =>
+      api.restoreGbRecord(id, remark, operatorName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
       queryClient.invalidateQueries({ queryKey: queryKeys.stats.all })
@@ -346,6 +376,18 @@ export function useDailyRecordsSummary(filters: Record<string, unknown> = {}) {
   return useQuery({
     queryKey: queryKeys.dailyRecords.summary(filters),
     queryFn: () => api.dailyRecordsSummary(filters),
+  })
+}
+
+/** 首页总览汇总（日常随礼 + 礼簿收礼），filters 需含 startDate/endDate */
+export function useStatsOverview(filters: Record<string, unknown>) {
+  return useQuery({
+    queryKey: ['stats', 'overview', filters],
+    queryFn: () =>
+      api.getStatsOverview(
+        String(filters.startDate ?? ''),
+        String(filters.endDate ?? ''),
+      ),
   })
 }
 

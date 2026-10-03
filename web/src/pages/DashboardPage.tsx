@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -9,7 +9,7 @@ import type { CollaborationInvitePending, Guestbook } from '../types'
 import {
   useGuestbooks,
   useDailyRecords,
-  useDailyRecordsSummary,
+  useStatsOverview,
   useGuestbookSummary,
   useRecentGbRecords,
   usePendingInvites,
@@ -245,12 +245,13 @@ function PendingInvitesBanner() {
 
 /** 首页 / 礼簿总览仪表板（需求 §6 首页） */
 export default function DashboardPage() {
+  const navigate = useNavigate()
   const monthlyFilters = useMemo(() => ({ startDate: thisMonthStart, endDate: thisMonthEnd }), [])
   const yearlyFilters = useMemo(() => ({ startDate: thisYearStart, endDate: thisYearEnd }), [])
   const recentDailyFilters = useMemo(() => ({ limit: 5 }), [])
 
-  const { data: monthSum } = useDailyRecordsSummary(monthlyFilters)
-  const { data: yearSum } = useDailyRecordsSummary(yearlyFilters)
+  const { data: monthSum } = useStatsOverview(monthlyFilters)
+  const { data: yearSum } = useStatsOverview(yearlyFilters)
   const { data: allGuestbooks = [], isLoading: gbLoading } = useGuestbooks()
   const { data: recentDaily = [], isLoading: dailyLoading } = useDailyRecords(recentDailyFilters)
 
@@ -321,6 +322,7 @@ export default function DashboardPage() {
           {/* ===== 本年汇总 ===== */}
           <div className="rounded-card bg-card p-5 shadow-card">
             <h2 className="text-section-title">本年汇总</h2>
+            <p className="mt-1 text-xs text-ink-secondary">含日常随礼与礼簿现场收礼</p>
             <div className="mt-3 grid grid-cols-3 gap-4">
               <div className="min-w-0 text-center">
                 <div className="text-lg font-bold text-danger break-all">{formatAmount(yearly.total_out)}</div>
@@ -433,8 +435,8 @@ export default function DashboardPage() {
                       </Link>
                       <button
                         className="rounded-btn border border-info px-3 py-1.5 text-xs font-medium text-info hover:bg-info/10"
-                        title="合并到其他礼簿（即将推出）"
-                        onClick={() => alert('合并向导功能即将推出')}
+                        title="将礼簿记录合并关联到人员库"
+                        onClick={() => navigate({ to: '/guestbooks/$id/merge', params: { id: String(gb.id) } })}
                       >
                         合并
                       </button>

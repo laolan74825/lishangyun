@@ -90,7 +90,7 @@ export default function RecentRecordsPanel({
             {onClearSelection && (
               <button
                 onClick={onClearSelection}
-                className="text-xs text-ink-secondary hover:text-danger"
+                className="rounded-btn border border-danger/50 bg-card px-2.5 py-1 text-xs font-medium text-danger shadow-sm transition-colors hover:bg-danger/10"
               >
                 取消选择
               </button>

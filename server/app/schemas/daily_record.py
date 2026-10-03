@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 RecordType = Literal["in", "out"]
 PaymentMethod = Literal["cash", "wechat", "other"]
-EventType = Literal["wedding", "birthday", "fullmoon", "housewarming", "graduation", "funeral", "holiday", "other"]
 
 
 class DailyRecordCreate(BaseModel):
@@ -14,7 +13,8 @@ class DailyRecordCreate(BaseModel):
     person_name: str = Field(..., max_length=50)
     phone: str | None = Field(None, max_length=20)
     amount: int = Field(..., ge=100, le=50000000)
-    event_type: EventType
+    # 事由自由文本（如"小孙子满月"），常用事由由前端 datalist 提示
+    event_type: str = Field(..., max_length=30)
     payment_method: PaymentMethod | None = None
     account_id: int | None = None
     event_date: date
@@ -28,7 +28,7 @@ class DailyRecordUpdate(BaseModel):
     person_name: str | None = Field(None, max_length=50)
     phone: str | None = Field(None, max_length=20)
     amount: int | None = Field(None, ge=100, le=50000000)
-    event_type: EventType | None = None
+    event_type: str | None = Field(None, max_length=30)
     payment_method: PaymentMethod | None = None
     account_id: int | None = None
     event_date: date | None = None

@@ -387,6 +387,9 @@ export function GuestbookListPage() {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-bold text-ink">{gb.name}</h3>
+              {gb.person_merged_at && (
+                <span className="rounded bg-success/10 px-1.5 py-0.5 text-xs text-success">已合并</span>
+              )}
               {gb.total_records === 0 && gb.id && (
                 <button
                   onClick={() => setDeleteId(gb.id!)}
@@ -459,8 +462,8 @@ export function GuestbookListPage() {
           {(gb.status === 'closing' || gb.status === 'archived') && (
             <button
               className="rounded-btn border border-info px-4 py-2.5 text-sm font-medium text-info hover:bg-info/10"
-              title="合并到其他礼簿"
-              onClick={() => alert('合并向导功能即将推出')}
+              title="将礼簿记录合并关联到人员库"
+              onClick={() => navigate({ to: '/guestbooks/$id/merge', params: { id: String(gb.id) } })}
             >
               合并
             </button>

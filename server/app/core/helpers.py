@@ -6,6 +6,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.operation_log import OperationLog
+from app.models.person import Person
 
 
 async def paginate_query(
@@ -22,6 +23,30 @@ async def paginate_query(
         "total_count": total_count,
         "total_pages": total_pages,
     }
+
+
+async def match_person_id(
+    db: AsyncSession, owner_id: int, name: str, phone: str | None = None
+) -> int | None:
+    """按宾客姓名（可选电话）在人员库中精确匹配人员 ID。
+
+    匹配规则：
+    - 有电话时优先「姓名 + 电话」精确匹配
+    - 其次退化为「姓名」精确匹配
+    - 只匹配未删除的人员；同名多人且无法通过电话区分时返回 None（避免错误关联）
+    """
+    base_conds = [Person.owner_id == owner_id, Person.name == name, Person.is_deleted == False]
+    if phone:
+        result = await db.execute(
+            select(Person.id).where(*base_conds, Person.phone == phone)
+        )
+        pid = result.scalar_one_or_none()
+        if pid is not None:
+            return pid
+    result = await db.execute(select(Person.id).where(*base_conds))
+    rows = result.scalars().all()
+    # 同名多人时无法确定关联对象，返回 None 交由用户人工处理
+    return rows[0] if len(rows) == 1 else None
 
 
 def write_audit_log(

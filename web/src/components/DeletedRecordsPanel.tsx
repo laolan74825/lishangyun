@@ -4,6 +4,7 @@ import Toast, { useToast } from './Toast'
 import ConfirmDialog from './ConfirmDialog'
 import type { GbRecord } from '../types'
 import { useDeletedRecords, useRestoreGbRecord, usePaymentAccounts } from '../hooks/useQueries'
+import { useAppStore } from '../store/appStore'
 
 /**
  * 删除记录面板（回收站）
@@ -14,6 +15,7 @@ export default function DeletedRecordsPanel({ guestbookId }: { guestbookId: numb
   const { data: accounts = [] } = usePaymentAccounts()
   const restoreMutation = useRestoreGbRecord()
   const { toast, showToast } = useToast()
+  const operatorName = useAppStore((s) => s.operatorName)
 
   const [restoreTarget, setRestoreTarget] = useState<GbRecord | null>(null)
   const [restoreRemark, setRestoreRemark] = useState('')
@@ -23,7 +25,7 @@ export default function DeletedRecordsPanel({ guestbookId }: { guestbookId: numb
   const handleRestore = () => {
     if (!restoreTarget?.id) return
     restoreMutation.mutate(
-      { id: restoreTarget.id, remark: restoreRemark.trim() || undefined },
+      { id: restoreTarget.id, remark: restoreRemark.trim() || undefined, operatorName: operatorName.trim() || undefined },
       {
         onSuccess: () => {
           showToast('记录已恢复')

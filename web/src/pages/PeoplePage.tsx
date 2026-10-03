@@ -200,7 +200,7 @@ export default function PeoplePage() {
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="搜索姓名、昵称、电话、别名…"
+          placeholder="搜索姓名、称谓、电话、别名…"
           className="h-11 flex-1 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
         />
         <RelationTagFilter
@@ -234,7 +234,7 @@ export default function PeoplePage() {
                       </span>
                     </div>
                     {p.nickname && (
-                      <p className="text-sm text-ink-secondary">昵称：{p.nickname}</p>
+                      <p className="text-sm text-ink-secondary">称谓：{p.nickname}</p>
                     )}
                     {p.phone && (
                       <p className="text-sm text-ink-secondary">电话：{p.phone}</p>
@@ -402,7 +402,7 @@ export default function PeoplePage() {
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink">昵称</span>
+            <span className="text-sm font-medium text-ink">称谓</span>
             <input
               value={formNickname}
               onChange={(e) => setFormNickname(e.target.value)}

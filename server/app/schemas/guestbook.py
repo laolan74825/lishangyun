@@ -28,6 +28,11 @@ class GuestbookCloseRequest(BaseModel):
     summary: str | None = Field(None, max_length=2000)
 
 
+class MergeCreatePersonsRequest(BaseModel):
+    """合并向导「按礼簿数据新建人员」：勾选无法匹配的记录，确认后为每条记录新建人员并关联"""
+    record_ids: list[int] = Field(..., min_length=1)
+
+
 class GuestbookResponse(BaseModel):
     id: int
     owner_id: int
@@ -40,6 +45,7 @@ class GuestbookResponse(BaseModel):
     closing_at: datetime | None = None
     closing_summary: str | None = None
     archived_at: datetime | None = None
+    person_merged_at: datetime | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -57,3 +63,4 @@ class GuestbookSummary(BaseModel):
     total_amount: int = 0
     checked_count: int = 0
     unchecked_count: int = 0
+    person_merged_at: datetime | None = None

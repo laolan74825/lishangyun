@@ -5,30 +5,32 @@ import MonthlyTrendChart from '../components/charts/MonthlyTrendChart'
 import EventDistributionChart from '../components/charts/EventDistributionChart'
 import GuestbookStatsTable from '../components/charts/GuestbookStatsTable'
 import {
-  useDailyRecords,
   useAllGuestbookSummaries,
   usePersonRanking,
   useMonthlyTrend,
   useEventDistribution,
   useGuestbookStats,
+  useStatsOverview,
 } from '../hooks/useQueries'
 
 export default function StatsPage() {
-  const { data: records = [], isLoading: recordsLoading } = useDailyRecords()
   const { data: gbSummaries = [], isLoading: gbLoading } = useAllGuestbookSummaries()
   const { data: rankings = [], isLoading: rankLoading } = usePersonRanking(10)
   const { data: monthlyTrend = [], isLoading: trendLoading } = useMonthlyTrend()
   const { data: eventDist = [], isLoading: distLoading } = useEventDistribution()
   const { data: gbStats = [], isLoading: gbStatsLoading } = useGuestbookStats()
-  const loading = recordsLoading || gbLoading || rankLoading || trendLoading || distLoading || gbStatsLoading
   const [year, setYear] = useState(dayjs().year().toString())
 
-  const yearRecords = useMemo(() => {
-    return records.filter((r) => r.event_date.startsWith(year))
-  }, [records, year])
+  // 年度总览：日常随礼 + 礼簿收礼（与首页总览同一口径）
+  const yearFilters = useMemo(
+    () => ({ startDate: `${year}-01-01`, endDate: `${year}-12-31` }),
+    [year],
+  )
+  const { data: yearOverview, isLoading: yearLoading } = useStatsOverview(yearFilters)
+  const loading = gbLoading || rankLoading || trendLoading || distLoading || gbStatsLoading || yearLoading
 
-  const yearOut = yearRecords.filter((r) => r.type === 'out').reduce((s, r) => s + r.amount, 0)
-  const yearIn = yearRecords.filter((r) => r.type === 'in').reduce((s, r) => s + r.amount, 0)
+  const yearOut = yearOverview?.total_out ?? 0
+  const yearIn = yearOverview?.total_in ?? 0
 
   const formatY = (fen: number) => `¥${(fen / 100).toFixed(2)}`
 
@@ -54,6 +56,7 @@ export default function StatsPage() {
                 ))}
               </select>
             </div>
+            <p className="mt-1 text-xs text-ink-secondary">收到含日常随礼与礼簿现场收礼</p>
             <div className="mt-3 grid grid-cols-3 gap-4">
               <div className="min-w-0 text-center">
                 <div className="break-all text-lg font-bold text-danger">{formatY(yearOut)}</div>
@@ -82,7 +85,7 @@ export default function StatsPage() {
 
           {/* 事由分布（ECharts） */}
           <div className="rounded-card bg-card p-5 shadow-card">
-            <h2 className="text-section-title">按事由统计</h2>
+            <h2 className="text-section-title">按事由统计（收到）</h2>
             <div className="mt-3">
               <EventDistributionChart data={eventDist} />
             </div>

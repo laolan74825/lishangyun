@@ -26,6 +26,20 @@ type TimelineItem = {
   record: DailyRecord | GbRecord
 }
 
+/** 历史记录中可能存的是事由英文编码，展示时映射为中文；自由文本原样展示 */
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  wedding: '婚礼',
+  birthday: '周岁宴',
+  fullmoon: '满月酒',
+  housewarming: '乔迁',
+  graduation: '升学宴',
+  funeral: '丧葬',
+  holiday: '节日红包',
+  other: '其他',
+}
+
+const eventTypeLabel = (v: string) => EVENT_TYPE_LABELS[v] ?? v
+
 export default function PersonDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string }
   const personId = Number(id)
@@ -56,7 +70,7 @@ export default function PersonDetailPage() {
         date: r.event_date,
         amount: r.amount,
         direction: r.type,
-        eventLabel: r.event_type,
+        eventLabel: eventTypeLabel(r.event_type),
         source: r.source === 'guestbook' ? '礼簿' : '日常',
         record: r,
       })
@@ -183,7 +197,7 @@ export default function PersonDetailPage() {
             </div>
             <div className="flex-1">
               <h2 className="text-xl font-bold text-ink">{person.name}</h2>
-              {person.nickname && <p className="text-sm text-ink-secondary">昵称：{person.nickname}</p>}
+              {person.nickname && <p className="text-sm text-ink-secondary">称谓：{person.nickname}</p>}
               <div className="mt-2 flex flex-wrap gap-3 text-sm text-ink-secondary">
                 <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary">{person.relation_tag}</span>
                 {person.phone && <span>电话：{person.phone}</span>}

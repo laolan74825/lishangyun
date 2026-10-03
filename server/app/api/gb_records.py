@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.guestbook_access import get_guestbook_access
-from app.core.helpers import model_to_dict, paginate_query, write_audit_log
+from app.core.helpers import match_person_id, model_to_dict, paginate_query, write_audit_log
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
 from app.models.payment_account import PaymentAccount
@@ -78,6 +78,7 @@ async def restore_record(
     db: DbSession,
     current_user: OwnerUser,
     remark: str | None = Query(None, max_length=200),
+    operator_name: str | None = Query(None),
 ):
     """恢复已删除的收礼记录，并写入操作日志"""
     result = await db.execute(
@@ -94,7 +95,7 @@ async def restore_record(
     record.updated_at = utcnow()
     write_audit_log(db, current_user.id, "gb_records", record_id, "RESTORE",
                     guestbook_id=record.guestbook_id,
-                    operator_name=current_user.username,
+                    operator_name=operator_name or current_user.username,
                     before=before,
                     after={
                         "is_deleted": False,
@@ -183,8 +184,6 @@ async def create_record(
     body: GbRecordCreate,
     db: DbSession,
     current_user: EditorUser,
-    client_id: str | None = None,
-    operator_name: str | None = None,
 ):
     result = await db.execute(
         select(Guestbook)
@@ -195,21 +194,25 @@ async def create_record(
     if not gb:
         raise HTTPException(status_code=404, detail="礼簿不存在")
 
+    # 收尾中补录的记录无需对账，自动标记为已对账
     record = GbRecord(
         uuid=new_uuid(),
         owner_id=current_user.id,
         guestbook_id=gb_id,
-        check_status="unchecked",
+        check_status="checked" if gb.status == "closing" else "unchecked",
         record_time=body.record_time or utcnow(),
-        client_id=client_id,
-        operator_name=operator_name,
-        **body.model_dump(exclude={"record_time"}),
+        client_id=body.client_id,
+        operator_name=body.operator_name,
+        **body.model_dump(exclude={"record_time", "operator_name", "client_id"}),
     )
+    # 已合并礼簿：补录记录自动解析人员关联
+    if gb.person_merged_at and not record.person_id:
+        record.person_id = await match_person_id(db, current_user.id, record.guest_name, record.phone)
     db.add(record)
     await db.flush()
     write_audit_log(db, current_user.id, "gb_records", record.id, "CREATE",
-                    guestbook_id=gb_id, operator_name=operator_name, client_id=client_id,
-                    after=body.model_dump())
+                    guestbook_id=gb_id, operator_name=body.operator_name, client_id=body.client_id,
+                    after=body.model_dump(exclude={"operator_name", "client_id"}))
     await db.commit()
     return record.id
 
@@ -220,8 +223,6 @@ async def create_records_batch(
     body: GbRecordBatchCreate,
     db: DbSession,
     current_user: EditorUser,
-    client_id: str | None = None,
-    operator_name: str | None = None,
 ):
     result = await db.execute(
         select(Guestbook)
@@ -234,18 +235,25 @@ async def create_records_batch(
 
     ids = []
     for item in body.records:
+        # 收尾中补录的记录无需对账，自动标记为已对账
         record = GbRecord(
             uuid=new_uuid(),
             owner_id=current_user.id,
             guestbook_id=gb_id,
-            check_status="unchecked",
+            check_status="checked" if gb.status == "closing" else "unchecked",
             record_time=item.record_time or utcnow(),
-            client_id=client_id,
-            operator_name=operator_name,
-            **item.model_dump(exclude={"record_time"}),
+            client_id=body.client_id,
+            operator_name=body.operator_name,
+            **item.model_dump(exclude={"record_time", "operator_name", "client_id"}),
         )
+        # 已合并礼簿：补录记录自动解析人员关联
+        if gb.person_merged_at and not record.person_id:
+            record.person_id = await match_person_id(db, current_user.id, record.guest_name, record.phone)
         db.add(record)
         await db.flush()
+        write_audit_log(db, current_user.id, "gb_records", record.id, "CREATE",
+                        guestbook_id=gb_id, operator_name=body.operator_name, client_id=body.client_id,
+                        after=item.model_dump(exclude={"operator_name", "client_id"}))
         ids.append(record.id)
     await db.commit()
     return ids
@@ -267,13 +275,24 @@ async def update_record(
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
     before = model_to_dict(record)
-    changes = body.model_dump(exclude_unset=True, exclude={"remark"})
+    changes = body.model_dump(exclude_unset=True,
+                              exclude={"remark", "operator_name", "client_id"})
     for k, v in changes.items():
         setattr(record, k, v)
+    # 已合并礼簿：宾客姓名/电话变更后自动重新解析人员关联
+    if changes.get("guest_name") is not None or changes.get("phone") is not None:
+        gb_result = await db.execute(
+            select(Guestbook.person_merged_at).where(Guestbook.id == record.guestbook_id)
+        )
+        if gb_result.scalar_one_or_none() is not None:
+            record.person_id = await match_person_id(
+                db, current_user.id, record.guest_name, record.phone
+            )
     record.updated_at = utcnow()
     write_audit_log(db, current_user.id, "gb_records", record_id, "UPDATE",
                     guestbook_id=record.guestbook_id,
-                    operator_name=current_user.username,
+                    operator_name=body.operator_name or current_user.username,
+                    client_id=body.client_id,
                     before=before, after=changes,
                     note=body.remark)
     await db.commit()
@@ -286,6 +305,8 @@ async def delete_record(
     db: DbSession,
     current_user: OwnerUser,
     remark: str | None = Query(None, max_length=200),
+    operator_name: str | None = Query(None),
+    client_id: str | None = Query(None),
 ):
     result = await db.execute(
         select(GbRecord)
@@ -300,7 +321,8 @@ async def delete_record(
     record.deleted_at = utcnow()
     write_audit_log(db, current_user.id, "gb_records", record_id, "DELETE",
                     guestbook_id=record.guestbook_id,
-                    operator_name=current_user.username, before=before,
+                    operator_name=operator_name or current_user.username,
+                    client_id=client_id, before=before,
                     note=remark)
     await db.commit()
     return {"message": "已删除"}

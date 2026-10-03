@@ -380,7 +380,7 @@ const FIELD_NAMES: Record<string, string> = {
   agent_name: '经手人',
   check_status: '对账状态',
   record_time: '记录时间',
-  nickname: '昵称',
+  nickname: '称谓',
   aliases: '别名',
 }
 

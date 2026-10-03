@@ -17,6 +17,9 @@ class GbRecordCreate(BaseModel):
     agent_name: str | None = Field(None, max_length=50)
     record_time: datetime | None = None
     person_id: int | None = None
+    # 记账员/终端标识：仅写入记录与操作日志，不作为记录字段
+    operator_name: str | None = Field(None, max_length=50)
+    client_id: str | None = Field(None, max_length=64)
 
 
 class GbRecordUpdate(BaseModel):
@@ -33,6 +36,9 @@ class GbRecordUpdate(BaseModel):
     is_private: bool | None = None
     # 修改原因/备注：仅写入操作日志，不落到记录字段
     remark: str | None = Field(None, max_length=200)
+    # 记账员/终端标识：仅写入操作日志，不落到记录字段
+    operator_name: str | None = Field(None, max_length=50)
+    client_id: str | None = Field(None, max_length=64)
 
 class GbRecordResponse(BaseModel):
     id: int
@@ -63,6 +69,9 @@ class GbRecordResponse(BaseModel):
 
 class GbRecordBatchCreate(BaseModel):
     records: list[GbRecordCreate]
+    # 记账员/终端标识：提升到批次顶层，统一写入每条记录及其操作日志
+    operator_name: str | None = Field(None, max_length=50)
+    client_id: str | None = Field(None, max_length=64)
 
 
 class BatchCheckRequest(BaseModel):

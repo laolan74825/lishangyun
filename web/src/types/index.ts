@@ -110,6 +110,8 @@ export interface Guestbook {
   closing_at?: string
   closing_summary?: string | null
   archived_at?: string
+  /** 人员合并完成时间（已合并标记）：已合并礼簿的修改/补录会自动解析人员关联 */
+  person_merged_at?: string
 }
 
 /** 礼簿收礼记录 */

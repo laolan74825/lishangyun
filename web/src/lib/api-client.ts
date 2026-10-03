@@ -93,6 +93,30 @@ export async function unarchiveGuestbook(id: number): Promise<void> {
   await api.post(`/guestbooks/${id}/unarchive`)
 }
 
+export interface GuestbookMergeResult {
+  linked: number
+  unmatched: number
+  already_linked: number
+}
+
+// 礼簿合并：将礼簿内未关联人员库的记录按宾客姓名/电话建立 person_id 关联（不搬迁数据）
+export async function mergeGuestbookPersons(id: number): Promise<GuestbookMergeResult> {
+  return api.post<GuestbookMergeResult>(`/guestbooks/${id}/merge-persons`)
+}
+
+export interface MergeCreatePersonsResult {
+  created: number
+  linked_existing: number
+  skipped: number
+}
+
+// 合并向导「新建人员」：对勾选的无法匹配记录按礼簿数据新建人员并关联（服务端先查重，不重复建人）
+export async function mergeCreatePersons(id: number, recordIds: number[]): Promise<MergeCreatePersonsResult> {
+  return api.post<MergeCreatePersonsResult>(`/guestbooks/${id}/merge-persons/create-persons`, {
+    record_ids: recordIds,
+  })
+}
+
 export async function deleteGuestbook(id: number): Promise<void> {
   await api.delete(`/guestbooks/${id}`)
 }
@@ -121,7 +145,9 @@ export async function createGbRecord(input: CreateGbRecordInput): Promise<number
 export async function createGbRecordBatch(inputs: CreateGbRecordInput[]): Promise<number[]> {
   if (inputs.length === 0) return []
   const guestbook_id = inputs[0].guestbook_id
-  const res = await api.post<{ ids: number[] }>(`/guestbooks/${guestbook_id}/records/batch`, { records: inputs })
+  // 记账员/终端标识提升到 body 顶层，后端写入每条记录及其操作日志
+  const { operator_name, client_id } = inputs[0]
+  const res = await api.post<{ ids: number[] }>(`/guestbooks/${guestbook_id}/records/batch`, { records: inputs, operator_name, client_id })
   return res.ids
 }
 
@@ -155,9 +181,12 @@ export async function getDeletedRecords(guestbookId: number): Promise<GbRecord[]
 }
 
 /** 恢复已删除的收礼记录，可附备注（写入操作日志） */
-export async function restoreGbRecord(id: number, remark?: string): Promise<void> {
-  const qs = remark?.trim() ? `?remark=${encodeURIComponent(remark.trim())}` : ''
-  await api.post(`/gb-records/${id}/restore${qs}`)
+export async function restoreGbRecord(id: number, remark?: string, operatorName?: string): Promise<void> {
+  const params = new URLSearchParams()
+  if (remark?.trim()) params.set('remark', remark.trim())
+  if (operatorName) params.set('operator_name', operatorName)
+  const qs = params.toString()
+  await api.post(`/gb-records/${id}/restore${qs ? `?${qs}` : ''}`)
 }
 
 export async function updateCheckStatus(
@@ -216,8 +245,9 @@ export interface CreateProxyRecordInput {
 export async function createProxyRecords(
   guestbookId: number,
   records: CreateProxyRecordInput[],
+  operatorName?: string,
 ): Promise<number[]> {
-  return api.post<number[]>(`/guestbooks/${guestbookId}/proxy-records`, { records })
+  return api.post<number[]>(`/guestbooks/${guestbookId}/proxy-records`, { records, operator_name: operatorName })
 }
 
 /* ========================= 日常记录 CRUD ========================= */
@@ -675,6 +705,13 @@ export async function createBalanceAdjustment(data: {
 }
 
 /* ========================= 增强统计 ========================= */
+
+// 首页总览汇总：日常随礼 + 礼簿收礼（礼簿收礼计入收到）
+export async function getStatsOverview(startDate: string, endDate: string) {
+  return api.get<{ total_out: number; total_in: number; net: number }>(
+    `/stats/overview?start_date=${startDate}&end_date=${endDate}`,
+  )
+}
 
 export async function getMonthlyTrend(months: number = 12): Promise<MonthlyTrendItem[]> {
   return api.get<MonthlyTrendItem[]>(`/stats/monthly-trend?months=${months}`)

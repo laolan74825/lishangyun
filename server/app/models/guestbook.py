@@ -21,6 +21,9 @@ class Guestbook(Base):
     closing_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     closing_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 人员合并完成时间：礼簿执行"合并到人员库"后记录。
+    # 已合并礼簿中后续的修改/补录会自动按宾客姓名/电话解析 person_id，保持关联同步。
+    person_merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)

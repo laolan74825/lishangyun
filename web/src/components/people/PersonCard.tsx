@@ -36,7 +36,7 @@ export default function PersonCard({ person, summary, onEdit, onDelete, onViewDe
               </span>
             </div>
             {person.nickname && (
-              <p className="text-sm text-ink-secondary">昵称：{person.nickname}</p>
+              <p className="text-sm text-ink-secondary">称谓：{person.nickname}</p>
             )}
             {person.phone && (
               <p className="text-sm text-ink-secondary">电话：{person.phone}</p>

@@ -22,6 +22,18 @@ class TestDailyRecordCRUD:
         record_id = resp.json()["id"]
         assert isinstance(record_id, int)
 
+    async def test_create_record_free_text_event_type(self, client, admin_headers, db_session):
+        """事由支持自由文本（如"小孙子满月"），不再限定枚举"""
+        resp = _create_record(client, admin_headers, event_type="小孙子满月")
+        assert resp.status_code == 200
+
+        resp_list = client.get("/api/daily-records/", headers=admin_headers)
+        assert resp_list.json()["items"][0]["event_type"] == "小孙子满月"
+
+    async def test_create_record_event_type_too_long(self, client, admin_headers, db_session):
+        resp = _create_record(client, admin_headers, event_type="x" * 31)
+        assert resp.status_code == 422
+
     async def test_list_records(self, client, admin_headers, db_session):
         _create_record(client, admin_headers, person_name="张三")
         _create_record(client, admin_headers, person_name="李四")

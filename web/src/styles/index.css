@@ -117,3 +117,8 @@
   font-weight: 500;
   line-height: 1.4;
 }
+
+/* 隐藏 datalist 联想输入框的原生下拉箭头（记一笔事由等自由输入场景） */
+input::-webkit-calendar-picker-indicator {
+  display: none;
+}

@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from sqlalchemy import select
 
 from app.models.gb_record import GbRecord
@@ -34,6 +36,70 @@ class TestGbRecordCRUD:
     async def test_create_record_nonexistent_guestbook(self, client, admin_headers, db_session):
         resp = _create_record(client, admin_headers, 9999)
         assert resp.status_code == 404
+
+    async def test_create_record_active_is_unchecked(self, client, admin_headers, db_session):
+        """收礼中录入的记录默认未对账"""
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
+        records = {r["id"]: r for r in resp.json()["items"]}
+        assert records[record_id]["check_status"] == "unchecked"
+
+    async def test_create_record_in_closing_auto_checked(self, client, admin_headers, db_session):
+        """收尾中补录的记录无需对账，自动标记为已对账"""
+        gb_id = _create_guestbook(client, admin_headers)
+        client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
+        records = {r["id"]: r for r in resp.json()["items"]}
+        assert records[record_id]["check_status"] == "checked"
+
+        # 汇总统计中该笔计入已对账
+        resp_summary = client.get(f"/api/guestbooks/{gb_id}/summary", headers=admin_headers)
+        assert resp_summary.json()["checked_count"] == 1
+        assert resp_summary.json()["unchecked_count"] == 0
+
+    async def test_merged_guestbook_new_record_auto_linked(self, client, admin_headers, db_session):
+        """已合并礼簿中补录的记录自动解析人员关联"""
+        gb_id = _create_guestbook(client, admin_headers)
+        person_id = client.post("/api/persons/", json={"name": "张三"}, headers=admin_headers).json()
+        client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+        client.post(f"/api/guestbooks/{gb_id}/merge-persons", headers=admin_headers)
+
+        # 补录同名新记录
+        new_id = _create_record(client, admin_headers, gb_id, guest_name="张三").json()
+
+        resp = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
+        records = {r["id"]: r for r in resp.json()["items"]}
+        assert records[new_id]["person_id"] == person_id
+
+    async def test_merged_guestbook_record_rename_relinks(self, client, admin_headers, db_session):
+        """已合并礼簿中修改宾客姓名后自动重新解析人员关联"""
+        gb_id = _create_guestbook(client, admin_headers)
+        person_a = client.post("/api/persons/", json={"name": "张三"}, headers=admin_headers).json()
+        person_b = client.post("/api/persons/", json={"name": "李四"}, headers=admin_headers).json()
+        client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+
+        record_id = _create_record(client, admin_headers, gb_id, guest_name="张三").json()
+        client.post(f"/api/guestbooks/{gb_id}/merge-persons", headers=admin_headers)
+
+        # 修正宾客姓名 → 自动重新关联
+        client.put(f"/api/gb-records/{record_id}", json={"guest_name": "李四"}, headers=admin_headers)
+
+        resp = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
+        records = {r["id"]: r for r in resp.json()["items"]}
+        assert records[record_id]["person_id"] == person_b
+
+        # 未合并礼簿中修改姓名不会自动关联
+        gb2 = _create_guestbook(client, admin_headers)
+        rec2 = _create_record(client, admin_headers, gb2, guest_name="张三").json()
+        client.put(f"/api/gb-records/{rec2}", json={"guest_name": "李四"}, headers=admin_headers)
+        resp2 = client.get(f"/api/guestbooks/{gb2}/records", headers=admin_headers)
+        records2 = {r["id"]: r for r in resp2.json()["items"]}
+        assert records2[rec2]["person_id"] is None
 
     async def test_list_records(self, client, admin_headers, db_session):
         gb_id = _create_guestbook(client, admin_headers)
@@ -297,6 +363,134 @@ class TestGbRecordAuditLog:
         )
         logs = result.scalars().all()
         assert len(logs) == 1
+
+    async def test_create_logs_operator_name(self, client, admin_headers, db_session):
+        """创建记录时传入记账员，操作日志应记录记账员而非账号用户名"""
+        gb_id = _create_guestbook(client, admin_headers)
+        resp = client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "张三",
+            "amount": 50000,
+            "payment_method": "cash",
+            "operator_name": "收银员小王",
+            "client_id": "terminal-1",
+        }, headers=admin_headers)
+        record_id = resp.json()
+
+        record = await db_session.get(GbRecord, record_id)
+        assert record.operator_name == "收银员小王"
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "CREATE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.operator_name == "收银员小王"
+        assert log.client_id == "terminal-1"
+
+    async def test_update_logs_operator_name(self, client, admin_headers, db_session):
+        """修改记录时传入记账员，操作日志应记录记账员"""
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.put(f"/api/gb-records/{record_id}", json={
+            "amount": 60000,
+            "operator_name": "收银员小李",
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "UPDATE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.operator_name == "收银员小李"
+
+    async def test_update_falls_back_to_username(self, client, admin_headers, db_session):
+        """未传记账员时，操作日志回退为账号用户名"""
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        client.put(f"/api/gb-records/{record_id}", json={"amount": 60000}, headers=admin_headers)
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "UPDATE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.operator_name is not None and log.operator_name != ""
+
+    async def test_delete_logs_operator_name(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.delete(
+            f"/api/gb-records/{record_id}?operator_name={quote('收银员小张')}", headers=admin_headers)
+        assert resp.status_code == 200
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "DELETE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.operator_name == "收银员小张"
+
+    async def test_batch_writes_audit_logs_with_operator(self, client, admin_headers, db_session):
+        """批量录入应为每条记录写操作日志，并记录记账员"""
+        gb_id = _create_guestbook(client, admin_headers)
+        resp = client.post(f"/api/guestbooks/{gb_id}/records/batch", json={
+            "records": [
+                {"guest_name": "张三", "amount": 50000, "payment_method": "cash"},
+                {"guest_name": "李四", "amount": 30000, "payment_method": "cash"},
+            ],
+            "operator_name": "收银员小赵",
+            "client_id": "terminal-2",
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+        ids = resp.json()
+        assert len(ids) == 2
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id.in_(ids),
+                OperationLog.action_type == "CREATE",
+            )
+        )
+        logs = result.scalars().all()
+        assert len(logs) == 2
+        assert all(log.operator_name == "收银员小赵" for log in logs)
+
+    async def test_restore_logs_operator_name(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+        client.delete(f"/api/gb-records/{record_id}", headers=admin_headers)
+
+        resp = client.post(
+            f"/api/gb-records/{record_id}/restore?operator_name={quote('收银员小孙')}",
+            headers=admin_headers)
+        assert resp.status_code == 200
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "RESTORE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.operator_name == "收银员小孙"
 
 
 class TestDataIsolation:
