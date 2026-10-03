@@ -710,6 +710,20 @@ export function usePersonGbRecords(personId: number) {
   })
 }
 
+/** 补关联维护：历史记录批量关联人员，成功后刷新人员与记录相关查询 */
+export function useBackfillPersonLinks() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.backfillPersonLinks(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.persons.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dailyRecords.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats.all })
+    },
+  })
+}
+
 /* ========================= 差额调整（Balance Adjustments）查询 Hooks =========================
  *
  * 差额调整用于手动修正人员的往来差额。

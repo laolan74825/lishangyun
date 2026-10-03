@@ -4,10 +4,11 @@ from app.core.time import utcnow
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
-from app.core.helpers import paginate_query, write_audit_log
+from app.core.helpers import match_person_id, paginate_query, write_audit_log
 from app.models.daily_record import DailyRecord
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
@@ -204,6 +205,60 @@ async def person_summary(person_id: int, current_user: CurrentUser, db: DbSessio
         total_out=daily_out, total_in=total_in, net=total_in - daily_out,
         daily_records=daily_records, gb_records=gb_records,
     )
+
+
+class BackfillLinksResult(BaseModel):
+    """补关联维护：按「姓名+电话」把历史记录批量关联到人员库的统计结果"""
+    gb_linked: int = 0        # 成功关联的礼簿收礼记录数
+    gb_unmatched: int = 0     # 无法匹配（无此人员/同名多人）的礼簿记录数
+    daily_linked: int = 0     # 成功关联的日常往来记录数
+    daily_unmatched: int = 0  # 无法匹配的日常记录数
+
+
+@router.post("/backfill-links", response_model=BackfillLinksResult)
+async def backfill_person_links(
+    db: DbSession,
+    current_user: OwnerUser,
+):
+    """补关联维护：为所有未关联人员的历史记录（礼簿收礼 + 日常往来）按
+    「姓名+电话」精确匹配（其次退化姓名精确匹配，同名多人不自动关联）回填 person_id。
+    幂等，可重复执行；只处理未关联的记录，不覆盖已有关联。"""
+    result = BackfillLinksResult()
+
+    gb_records = (await db.execute(
+        select(GbRecord)
+        .where(GbRecord.owner_id == current_user.id, GbRecord.person_id.is_(None),
+               GbRecord.is_deleted == False)
+    )).scalars().all()
+    for r in gb_records:
+        pid = await match_person_id(db, current_user.id, r.guest_name, r.phone)
+        if pid is not None:
+            r.person_id = pid
+            result.gb_linked += 1
+        else:
+            result.gb_unmatched += 1
+
+    daily_records = (await db.execute(
+        select(DailyRecord)
+        .where(DailyRecord.owner_id == current_user.id, DailyRecord.person_id.is_(None),
+               DailyRecord.is_deleted == False)
+    )).scalars().all()
+    for r in daily_records:
+        pid = await match_person_id(db, current_user.id, r.person_name, r.phone)
+        if pid is not None:
+            r.person_id = pid
+            result.daily_linked += 1
+        else:
+            result.daily_unmatched += 1
+
+    write_audit_log(
+        db, current_user.id, "persons", 0, "UPDATE",
+        operator_name=current_user.username,
+        note=(f"补关联维护：礼簿关联 {result.gb_linked} 条（未匹配 {result.gb_unmatched}），"
+              f"日常关联 {result.daily_linked} 条（未匹配 {result.daily_unmatched}）"),
+    )
+    await db.commit()
+    return result
 
 
 @router.post("/merge", response_model=PersonMergeResult)

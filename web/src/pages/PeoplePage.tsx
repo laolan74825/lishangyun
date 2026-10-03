@@ -18,6 +18,7 @@ import {
   useCreatePerson,
   useUpdatePerson,
   useDeletePerson,
+  useBackfillPersonLinks,
 } from '../hooks/useQueries'
 
 const relationOptions: RelationTag[] = ['亲戚', '朋友', '同事', '同学', '邻居', '其他']
@@ -46,6 +47,24 @@ export default function PeoplePage() {
 
   /* 确认弹窗 */
   const [deletingPersonId, setDeletingPersonId] = useState<number | null>(null)
+  const [showBackfillConfirm, setShowBackfillConfirm] = useState(false)
+  const backfillMutation = useBackfillPersonLinks()
+
+  const handleBackfill = () => {
+    setShowBackfillConfirm(false)
+    backfillMutation.mutate(undefined, {
+      onSuccess: (r) => {
+        const parts = [
+          `礼簿记录关联 ${r.gb_linked} 条`,
+          r.gb_unmatched > 0 ? `未匹配 ${r.gb_unmatched} 条` : '',
+          `日常记录关联 ${r.daily_linked} 条`,
+          r.daily_unmatched > 0 ? `未匹配 ${r.daily_unmatched} 条` : '',
+        ].filter(Boolean)
+        showToast(`补关联完成：${parts.join('，')}`)
+      },
+      onError: (e) => showToast('补关联失败：' + e.message),
+    })
+  }
 
   const { toast, showToast } = useToast()
 
@@ -189,6 +208,14 @@ export default function PeoplePage() {
       description="管理人员档案，关联日常礼金往来"
       actions={
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowBackfillConfirm(true)}
+            disabled={backfillMutation.isPending}
+            title="按姓名+电话把历史礼簿/日常记录批量关联到人员"
+            className="rounded-btn border border-warning px-4 py-2.5 text-sm font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
+          >
+            {backfillMutation.isPending ? '补关联中…' : '补关联'}
+          </button>
           <button
             onClick={() => navigate({ to: '/people/batch-edit' })}
             className="rounded-btn border border-primary px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10"
@@ -463,6 +490,17 @@ export default function PeoplePage() {
           />
         </label>
       </Modal>
+
+      <ConfirmDialog
+        open={showBackfillConfirm}
+        title="补关联"
+        message="将按「姓名+电话」为所有未关联人员的历史记录（礼簿收礼、日常往来）自动匹配人员并关联。同名多人无法区分的记录不会关联。该操作幂等，可重复执行。是否继续？"
+        variant="info"
+        confirmLabel="开始补关联"
+        onConfirm={handleBackfill}
+        onCancel={() => setShowBackfillConfirm(false)}
+        loading={backfillMutation.isPending}
+      />
 
       <ConfirmDialog
         open={deletingPersonId !== null}

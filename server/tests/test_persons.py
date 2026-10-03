@@ -165,6 +165,65 @@ class TestPersonSummary:
         assert gb["amount"] == 50000
 
 
+class TestBackfillLinks:
+    async def test_backfill_links_records(self, client, admin_headers, db_session):
+        """补关联维护：未关联的礼簿/日常记录按姓名匹配回填 person_id，已关联的不受影响"""
+        resp_create = client.post("/api/persons/", json={"name": "王五"}, headers=admin_headers)
+        person_id = resp_create.json()
+
+        resp_gb = client.post("/api/guestbooks/", json={
+            "name": "测试宴",
+            "event_type": "wedding",
+            "event_date": "2026-10-01",
+        }, headers=admin_headers)
+        gb_id = resp_gb.json()["id"]
+        # 一条未关联（guest_name 可匹配王五），一条同名多人场景外的不匹配记录
+        client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "王五",
+            "amount": 10000,
+            "payment_method": "cash",
+        }, headers=admin_headers)
+        client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "不存在的人",
+            "amount": 20000,
+            "payment_method": "cash",
+        }, headers=admin_headers)
+        # 日常记录：一条可匹配，一条无匹配
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_name": "王五",
+            "amount": 30000,
+            "event_type": "婚礼",
+            "event_date": "2026-09-01",
+        }, headers=admin_headers)
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_name": "路人甲",
+            "amount": 40000,
+            "event_type": "婚礼",
+            "event_date": "2026-09-01",
+        }, headers=admin_headers)
+
+        resp = client.post("/api/persons/backfill-links", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gb_linked"] == 1
+        assert data["gb_unmatched"] == 1
+        assert data["daily_linked"] == 1
+        assert data["daily_unmatched"] == 1
+
+        # 幂等：再次执行全部已关联，无新增
+        resp2 = client.post("/api/persons/backfill-links", headers=admin_headers)
+        assert resp2.json()["gb_linked"] == 0
+        assert resp2.json()["daily_linked"] == 0
+
+        # 王五的来往明细应能看到刚关联的两条
+        resp3 = client.get(f"/api/persons/{person_id}/summary", headers=admin_headers)
+        summary = resp3.json()
+        assert len(summary["gb_records"]) == 1
+        assert len(summary["daily_records"]) == 1
+
+
 class TestPersonAuditLog:
     async def test_create_writes_audit_log(self, client, admin_headers, db_session):
         resp = client.post("/api/persons/", json={"name": "张三"}, headers=admin_headers)

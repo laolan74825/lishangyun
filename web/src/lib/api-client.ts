@@ -699,6 +699,16 @@ export async function getPersonTransactionSummary(personId: number) {
   return api.get<{ total_out: number; total_in: number; net: number }>(`/persons/${personId}/summary`)
 }
 
+/** 补关联维护：把未关联人员的历史记录按「姓名+电话」批量关联到人员库 */
+export async function backfillPersonLinks(): Promise<{
+  gb_linked: number
+  gb_unmatched: number
+  daily_linked: number
+  daily_unmatched: number
+}> {
+  return api.post('/persons/backfill-links', {})
+}
+
 export async function getAllGuestbookSummaries() {
   return api.get<
     (Guestbook & {
