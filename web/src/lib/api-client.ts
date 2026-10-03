@@ -24,6 +24,7 @@ import type {
   Person,
   PersonMergeResult,
   ProfileResponse,
+  RelationTag,
   SecurityEmailItem,
   SystemSettings,
   TerminalSettings,
@@ -418,15 +419,70 @@ export async function findRecordByPhone(
 
 /* ========================= 人员管理 CRUD ========================= */
 
+/**
+ * 关系标签中英文对照：线格式为后端英文枚举（relative/friend/colleague/classmate/neighbor/other），
+ * UI 统一使用中文（亲戚/朋友/同事/同学/邻居/其他），在此层互转。
+ */
+const RELATION_EN_TO_ZH: Record<string, RelationTag> = {
+  relative: '亲戚',
+  friend: '朋友',
+  colleague: '同事',
+  classmate: '同学',
+  neighbor: '邻居',
+  other: '其他',
+}
+
+const RELATION_ZH_TO_EN: Record<RelationTag, string> = {
+  亲戚: 'relative',
+  朋友: 'friend',
+  同事: 'colleague',
+  同学: 'classmate',
+  邻居: 'neighbor',
+  其他: 'other',
+}
+
+const RELATION_ZH_VALUES = new Set<string>(Object.values(RELATION_EN_TO_ZH))
+
+/** 任意来源标签（英文枚举/中文/未知）统一转为中文显示值 */
+const toZhTag = (tag?: string | null): RelationTag => {
+  if (!tag) return '其他'
+  if (RELATION_ZH_VALUES.has(tag)) return tag as RelationTag
+  return RELATION_EN_TO_ZH[tag] ?? '其他'
+}
+
+/** 后端响应（relationship_tag 英文）→ 前端 Person（relation_tag 中文） */
+const normalizePerson = (p: Person & { relationship_tag?: string }): Person => ({
+  ...p,
+  relation_tag: toZhTag(p.relationship_tag ?? p.relation_tag),
+})
+
+/** 前端变更（relation_tag 中文）→ 后端（relationship_tag 英文） */
+const denormalizeChanges = (changes: Record<string, unknown>): Record<string, unknown> => {
+  const { relation_tag, relationship_tag, ...rest } = changes
+  const out: Record<string, unknown> = { ...rest }
+  const tag = relation_tag ?? relationship_tag
+  if (tag !== undefined) {
+    out.relationship_tag = RELATION_ZH_TO_EN[tag as RelationTag] ?? tag
+  }
+  return out
+}
+
 export async function createPerson(
   data: Omit<Person, 'id' | 'created_at'>,
 ): Promise<number> {
-  const res = await api.post<{ id: number }>('/persons/', data)
+  const res = await api.post<{ id: number }>('/persons/', denormalizeChanges({ ...data }))
   return res.id
 }
 
-export async function updatePerson(id: number, changes: Partial<Person>): Promise<void> {
-  await api.put(`/persons/${id}`, changes)
+export async function updatePerson(
+  id: number,
+  changes: Partial<Omit<Person, 'nickname' | 'phone' | 'note'>> & {
+    nickname?: string | null
+    phone?: string | null
+    note?: string | null
+  },
+): Promise<void> {
+  await api.put(`/persons/${id}`, denormalizeChanges(changes as Record<string, unknown>))
 }
 
 export async function deletePerson(id: number): Promise<void> {
@@ -435,7 +491,7 @@ export async function deletePerson(id: number): Promise<void> {
 
 export async function getAllPersons(): Promise<Person[]> {
   const res = await api.get<PaginatedResponse<Person>>('/persons/')
-  return res.items
+  return res.items.map(normalizePerson)
 }
 
 export async function getPersonsPaginated(
@@ -451,12 +507,14 @@ export async function getPersonsPaginated(
   params.set('page_size', String(pageSize))
   if (filters?.keyword) params.set('keyword', filters.keyword)
   if (filters?.relation_tag) params.set('relation_tag', filters.relation_tag)
-  return api.get<PaginatedResponse<Person>>(`/persons?${params.toString()}`)
+  const res = await api.get<PaginatedResponse<Person>>(`/persons?${params.toString()}`)
+  return { ...res, items: res.items.map(normalizePerson) }
 }
 
 export async function getPersonById(id: number): Promise<Person | undefined> {
   try {
-    return await api.get<Person>(`/persons/${id}`)
+    const p = await api.get<Person & { relationship_tag?: string }>(`/persons/${id}`)
+    return normalizePerson(p)
   } catch (err) {
     if (err instanceof ApiError && err.status === 0) throw err
     return undefined
@@ -464,7 +522,8 @@ export async function getPersonById(id: number): Promise<Person | undefined> {
 }
 
 export async function searchPersons(keyword: string): Promise<Person[]> {
-  return api.get<Person[]>(`/persons/search?q=${encodeURIComponent(keyword)}`)
+  const items = await api.get<(Person & { relationship_tag?: string })[]>(`/persons/search?q=${encodeURIComponent(keyword)}`)
+  return items.map(normalizePerson)
 }
 
 export async function mergePersons(

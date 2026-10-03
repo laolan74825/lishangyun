@@ -20,6 +20,7 @@ import GuestbookDetailPage from './pages/GuestbookDetailPage'
 import GuestbookMergePage from './pages/GuestbookMergePage'
 import AccountsPage from './pages/AccountsPage'
 import PeoplePage from './pages/PeoplePage'
+import PersonBatchEditPage from './pages/PersonBatchEditPage'
 import PersonDetailPage from './pages/PersonDetailPage'
 import MergeWizardPage from './pages/MergeWizardPage'
 import StatsPage from './pages/StatsPage'
@@ -146,6 +147,12 @@ const personDetailRoute = createRoute({
   component: PersonDetailPage,
 })
 
+const personBatchEditRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/people/batch-edit',
+  component: PersonBatchEditPage,
+})
+
 const mergeWizardRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/merge/$id',
@@ -269,6 +276,7 @@ const routeTree = rootRoute.addChildren([
     accountsRoute,
     peopleRoute,
     personDetailRoute,
+    personBatchEditRoute,
     mergeWizardRoute,
     statsRoute,
     settingsRoute,

@@ -6,6 +6,7 @@ import Toast, { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import GuestbookStatusBadge from '../components/guestbook/GuestbookStatusBadge'
+import PrintGuestbookButton from '../components/PrintGuestbookButton'
 import { cacheGuestbooks } from '../lib/dexie'
 import type { PaymentAccount } from '../types'
 import {
@@ -404,7 +405,13 @@ export function GuestbookListPage() {
               {gb.event_type} · {gb.event_date}
             </p>
           </div>
-          <GuestbookStatusBadge status={gb.status} />
+          <div className="flex flex-col items-end gap-1.5">
+            <GuestbookStatusBadge status={gb.status} />
+            <PrintGuestbookButton
+              guestbook={gb}
+              className="rounded px-1 py-0.5 text-xs text-ink-secondary transition-colors hover:text-primary"
+            />
+          </div>
         </div>
         {gb.total_records > 0 && (
           <div className="flex items-center gap-4 text-sm">

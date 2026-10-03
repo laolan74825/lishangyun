@@ -14,6 +14,7 @@ import type { GbRecord } from '../types'
 import { limitLevel } from '../types'
 import { exportGuestbook } from '../lib/api-client'
 import ExportButton from '../components/ExportButton'
+import PrintGuestbookButton from '../components/PrintGuestbookButton'
 import {
   useGuestbook,
   useGbRecords,
@@ -250,6 +251,7 @@ export default function GuestbookDetailPage() {
               label="导出礼簿"
             />
           )}
+          {guestbook && <PrintGuestbookButton guestbook={guestbook} />}
           {guestbook?.status === 'active' && (
             <>
               <Link

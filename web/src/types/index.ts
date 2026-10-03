@@ -70,6 +70,8 @@ export interface Person {
   phone?: string
   aliases: string[]
   relation_tag: RelationTag
+  /** 后端实际存储的关系标签（英文枚举 relative/friend/colleague/classmate/neighbor/other） */
+  relationship_tag?: string
   note?: string
   is_private?: boolean
   sync_version?: number

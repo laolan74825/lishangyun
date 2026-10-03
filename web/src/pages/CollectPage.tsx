@@ -100,10 +100,16 @@ export default function CollectPage() {
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [recordTime, setRecordTime] = useState('')
+  /* 拆分收款：同一宾客现金 + 微信各付一部分 */
+  const [splitPay, setSplitPay] = useState(false)
+  const [cashAmount, setCashAmount] = useState('')
+  const [wechatAmount, setWechatAmount] = useState('')
+  const [wechatAccountId, setWechatAccountId] = useState<number | ''>('')
   const [activeTab, setActiveTab] = useState<'single' | 'multi'>('single')
   const [multiItems, setMultiItems] = useState<MultiItem[]>([])
   const [agentName, setAgentName] = useState('')
   const [bulkPaymentMethod, setBulkPaymentMethod] = useState<PaymentMethod | ''>('')
+  const [bulkAccountId, setBulkAccountId] = useState<number | ''>('')
 
   /* ---------- UI 状态 ---------- */
   const [page, setPage] = useState(1)
@@ -158,6 +164,28 @@ export default function CollectPage() {
     return allAccounts.find((a) => a.id === accountId)
   }, [accountId, allAccounts])
 
+  /* 某类型未停用的账户中，优先系统默认（is_active），兜底第一个 */
+  const defaultAccountOf = useCallback((type: 'cash' | 'wechat') => {
+    const list = allAccounts.filter((a) => a.type === type && !a.is_disabled)
+    if (list.length === 0) return undefined
+    return list.find((a) => a.is_active) ?? list[0]
+  }, [allAccounts])
+
+  /* 拆分收款：微信账户默认选中系统默认微信账户 */
+  useEffect(() => {
+    if (!splitPay) return
+    setWechatAccountId((prev) => {
+      const cur = allAccounts.find((a) => a.id === prev && a.type === 'wechat' && !a.is_disabled)
+      if (cur) return prev
+      return defaultAccountOf('wechat')?.id ?? ''
+    })
+  }, [splitPay, allAccounts, defaultAccountOf])
+
+  const splitWechatAccount = useMemo(() => {
+    if (!wechatAccountId) return undefined
+    return allAccounts.find((a) => a.id === wechatAccountId)
+  }, [wechatAccountId, allAccounts])
+
   /* ---------- 重名检测 ---------- */
   const handleCheckDuplicate = useCallback(async () => {
     if (!guestName.trim() || !guestbookId) return false
@@ -195,23 +223,48 @@ export default function CollectPage() {
         showToast('请添加宾客记录')
         return
       }
-      const validItems = multiItems.filter((b) => b.guest_name.trim() && b.amount)
-      if (validItems.length === 0) {
-        showToast('请填写宾客姓名和金额')
+      // 行内未单独指定收款方式的行跟随本批设置
+      const anyFollow = multiItems.some((b) => !b.payment_method)
+      if (anyFollow && !bulkPaymentMethod) {
+        showToast('请选择本批收款方式')
         return
       }
-      const inputs = validItems.map((b) => {
+      if (anyFollow && bulkPaymentMethod !== 'other' && !bulkAccountId) {
+        showToast('请选择本批收款账户')
+        return
+      }
+      // 拦截填了一半的行，避免静默丢数据
+      const incomplete = multiItems.filter((b) => !b.guest_name.trim() || !b.amount)
+      if (incomplete.length > 0) {
+        const idx = multiItems.indexOf(incomplete[0]) + 1
+        showToast(`第 ${idx} 位宾客的姓名或金额未填写`)
+        return
+      }
+      const inputs = multiItems.map((b) => {
+        const amountFen = Math.round(parseFloat(b.amount) * 100)
+        if (isNaN(amountFen) || amountFen <= 0) {
+          throw new Error(`宾客「${b.guest_name.trim()}」金额无效`)
+        }
         const pm = (b.payment_method || bulkPaymentMethod) as PaymentMethod
-        if (!pm) {
-          throw new Error(`宾客「${b.guest_name.trim()}」未选择收款方式`)
+        // 行内单独指定的收款方式自动取该类型默认账户；跟随本批的用本批账户
+        let acc: number | undefined
+        if (pm === 'other') {
+          acc = undefined
+        } else if (b.payment_method) {
+          acc = defaultAccountOf(pm as 'cash' | 'wechat')?.id
+        } else {
+          acc = bulkAccountId || undefined
+        }
+        if (pm !== 'other' && !acc) {
+          throw new Error(`宾客「${b.guest_name.trim()}」的${pm === 'cash' ? '现金' : '微信'}账户不可用，请先到账户管理设置`)
         }
         return {
           guestbook_id: guestbookId,
           guest_name: b.guest_name.trim(),
           phone: b.phone.trim() || undefined,
-          amount: Math.round(parseFloat(b.amount) * 100),
+          amount: amountFen,
           payment_method: pm,
-          account_id: b.account_id as number,
+          account_id: acc,
           note: b.note.trim() || undefined,
           agent_name: agentName.trim() || undefined,
           client_id: clientId,
@@ -224,7 +277,60 @@ export default function CollectPage() {
           setMultiItems([])
           setAgentName('')
           setBulkPaymentMethod('')
-          setPaymentMethod('')
+          setBulkAccountId('')
+          setPage(1)
+          invalidateAfterMutation()
+          refreshLimits()
+        },
+        onError: (e) => showToast('保存失败：' + e.message),
+      })
+      return
+    }
+    /* ----- 单人录入：拆分收款（现金+微信混合） ----- */
+    if (splitPay) {
+      if (!guestName.trim()) {
+        showToast('请填写宾客姓名')
+        return
+      }
+      const cashFen = Math.round(parseFloat(cashAmount || '0') * 100)
+      const wechatFen = Math.round(parseFloat(wechatAmount || '0') * 100)
+      if (isNaN(cashFen) || isNaN(wechatFen) || cashFen <= 0 || wechatFen <= 0) {
+        showToast('请填写现金和微信两部分的金额（均需大于 0）')
+        return
+      }
+      const cashAccount = defaultAccountOf('cash')
+      if (!cashAccount) {
+        showToast('系统未设置现金账户，请先到账户管理添加')
+        return
+      }
+      if (!splitWechatAccount) {
+        showToast('请选择微信收款账户')
+        return
+      }
+      const splitTag = `混合收款：现金¥${(cashFen / 100).toFixed(2)}+微信¥${(wechatFen / 100).toFixed(2)}`
+      const baseNote = finalNote.trim() ? `${finalNote.trim()}；${splitTag}` : splitTag
+      const timeStr = recordTime ? dayjs(recordTime).format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss')
+      const base = {
+        guestbook_id: guestbookId,
+        guest_name: guestName.trim(),
+        phone: phone.trim() || undefined,
+        agent_name: agentName.trim() || undefined,
+        record_time: timeStr,
+        client_id: clientId,
+        operator_name: operatorName.trim()
+      }
+      batchMutation.mutate([
+        { ...base, amount: cashFen, payment_method: 'cash' as PaymentMethod, account_id: cashAccount.id!, note: baseNote },
+        { ...base, amount: wechatFen, payment_method: 'wechat' as PaymentMethod, account_id: splitWechatAccount.id!, note: baseNote }
+      ], {
+        onSuccess: () => {
+          showToast(`收礼记录已保存（现金¥${(cashFen / 100).toFixed(2)} + 微信¥${(wechatFen / 100).toFixed(2)}）`)
+          setGuestName('')
+          setPhone('')
+          setCashAmount('')
+          setWechatAmount('')
+          setNote('')
+          setAgentName('')
           setRecordTime('')
           setDuplicateRecords(null)
           setPage(1)
@@ -233,7 +339,9 @@ export default function CollectPage() {
         },
         onError: (e) => showToast('保存失败：' + e.message),
       })
-    } else {
+      return
+    }
+    /* ----- 单人录入：单一收款方式 ----- */
       if (!paymentMethod || !guestName.trim() || !amount) {
         showToast('请填写完整信息')
         return
@@ -272,7 +380,6 @@ export default function CollectPage() {
         },
         onError: (e) => showToast('保存失败：' + e.message),
       })
-    }
   }
 
   const handleSubmit = async () => {
@@ -310,6 +417,29 @@ export default function CollectPage() {
       return sum + (isNaN(v) ? 0 : Math.round(v * 100))
     }, 0)
   }, [multiItems])
+
+  /* 切换到多人录入时自动给出第一行 */
+  useEffect(() => {
+    if (activeTab === 'multi') {
+      setMultiItems((prev) => (prev.length === 0 ? [{ id: crypto.randomUUID(), guest_name: '', phone: '', amount: '', payment_method: '', account_id: '', note: '' }] : prev))
+    }
+  }, [activeTab])
+
+  /* 本批收款方式变化时自动选中系统默认账户（保留用户已手动选择的账户） */
+  useEffect(() => {
+    if (!bulkPaymentMethod || bulkPaymentMethod === 'other') {
+      setBulkAccountId('')
+      return
+    }
+    const typeAccounts = allAccounts.filter((a) => a.type === bulkPaymentMethod && !a.is_disabled)
+    if (typeAccounts.length === 0) {
+      setBulkAccountId('')
+      return
+    }
+    if (typeAccounts.some((a) => a.id === bulkAccountId)) return
+    const systemDefault = typeAccounts.find((a) => a.is_active)
+    setBulkAccountId((systemDefault ?? typeAccounts[0]).id!)
+  }, [bulkPaymentMethod, allAccounts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- 编辑原有记录（F-2.21） ---------- */
   const openEditExisting = (record: GbRecord) => {
@@ -423,11 +553,58 @@ export default function CollectPage() {
                 {/* 收款方式 */}
                 <label className="mt-4 flex flex-col gap-2">
                   <span className="text-sm font-medium text-ink">收款方式 <span className="text-danger">*</span></span>
-                  <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
+                  <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} disabled={splitPay} />
                 </label>
 
-                {/* 收款账户 */}
-                {paymentMethod && paymentMethod !== 'other' && (
+                {/* 拆分收款（混合：现金+微信） */}
+                <label className="mt-4 flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={splitPay}
+                    onChange={(e) => setSplitPay(e.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm font-medium text-ink">拆分收款</span>
+                  <span className="text-xs text-ink-secondary">同一宾客现金、微信各付一部分时勾选</span>
+                </label>
+
+                {/* 拆分收款：微信账户 + 收款码 */}
+                {splitPay && (
+                  <>
+                    <label className="mt-4 flex flex-col gap-2">
+                      <span className="text-sm font-medium text-ink">
+                        微信收款账户 <span className="text-danger">*</span>
+                        <span className="ml-2 text-xs font-normal text-ink-secondary">现金部分自动计入系统默认现金账户</span>
+                      </span>
+                      <select
+                        value={wechatAccountId}
+                        onChange={(e) => setWechatAccountId(e.target.value ? Number(e.target.value) : '')}
+                        className="h-12 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
+                      >
+                        <option value="">请选择微信账户</option>
+                        {allAccounts.filter((a) => a.type === 'wechat' && !a.is_disabled).map((a) => {
+                          const limit = limitMap.get(a.id!)
+                          const suffix = limit && limit.level !== 'normal'
+                            ? (limit.level === 'exhausted' ? '（已达限额）' : '（额度不足）')
+                            : ''
+                          return (
+                            <option key={a.id} value={a.id}>
+                              {a.name}{a.is_active ? '（系统默认）' : ''}{suffix}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </label>
+                    {splitWechatAccount && (
+                      <div className="mt-4">
+                        <WechatQrPanel account={splitWechatAccount} />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 收款账户（单一收款方式时） */}
+                {!splitPay && paymentMethod && paymentMethod !== 'other' && (
                   <div className="mt-4 flex flex-col gap-2">
                     <span className="text-sm font-medium text-ink">
                       收款账户：<span className="font-bold">{selectedAccount?.name ?? '未选择'}</span>
@@ -440,8 +617,8 @@ export default function CollectPage() {
                   </div>
                 )}
 
-                {/* 微信收款码 */}
-                {paymentMethod === 'wechat' && selectedAccount && (
+                {/* 微信收款码（单一收款方式时） */}
+                {!splitPay && paymentMethod === 'wechat' && selectedAccount && (
                   <div className="mt-4">
                     <WechatQrPanel account={selectedAccount} />
                   </div>
@@ -472,7 +649,46 @@ export default function CollectPage() {
                   />
                 </label>
 
-                {/* 金额 */}
+                {/* 金额：拆分收款时为现金+微信两部分 */}
+                {splitPay ? (
+                  <div className="mt-4 flex flex-col gap-2">
+                    <span className="text-sm font-medium text-ink">
+                      金额（元）：<span className="text-danger">*</span>
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-ink-secondary">现金部分</span>
+                        <input
+                          value={cashAmount}
+                          onChange={(e) => setCashAmount(e.target.value)}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          className="h-12 rounded-btn border border-line px-4 text-lg font-bold outline-none focus:border-2 focus:border-primary"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-ink-secondary">微信部分</span>
+                        <input
+                          value={wechatAmount}
+                          onChange={(e) => setWechatAmount(e.target.value)}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          className="h-12 rounded-btn border border-line px-4 text-lg font-bold outline-none focus:border-2 focus:border-primary"
+                        />
+                      </label>
+                    </div>
+                    {(() => {
+                      const c = parseFloat(cashAmount || '0')
+                      const w = parseFloat(wechatAmount || '0')
+                      const totalFen = (isNaN(c) ? 0 : Math.round(c * 100)) + (isNaN(w) ? 0 : Math.round(w * 100))
+                      return totalFen > 0 ? (
+                        <p className="text-sm text-ink-secondary">
+                          合计 ¥{(totalFen / 100).toFixed(2)}（{amountToChinese(totalFen)}）
+                        </p>
+                      ) : null
+                    })()}
+                  </div>
+                ) : (
                 <label className="mt-4 flex flex-col gap-2">
                   <div className="flex items-center gap-1">
                     <span className="text-sm font-medium text-ink">
@@ -492,6 +708,7 @@ export default function CollectPage() {
                     className="h-12 rounded-btn border border-line px-4 text-lg font-bold outline-none focus:border-2 focus:border-primary"
                   />
                 </label>
+                )}
 
                 {/* 备注 */}
                 <label className="mt-4 flex flex-col gap-2">
@@ -546,6 +763,9 @@ export default function CollectPage() {
                 onRemoveItem={removeMultiItem}
                 bulkPaymentMethod={bulkPaymentMethod}
                 onBulkPaymentMethodChange={setBulkPaymentMethod}
+                bulkAccountId={bulkAccountId}
+                onBulkAccountIdChange={setBulkAccountId}
+                limitMap={limitMap}
                 total={multiTotal}
               />
             )}
@@ -560,7 +780,7 @@ export default function CollectPage() {
               }
               className="mt-6 h-14 w-full rounded-btn bg-primary text-lg font-bold text-white shadow-md transition-all hover:bg-primary-deep disabled:bg-disabled disabled:shadow-none"
             >
-              {isPending ? '保存中…' : activeTab === 'multi' ? `确认多人录入 (${multiItems.filter((b) => b.guest_name.trim() && b.amount).length}人)` : '确认收礼'}
+              {isPending ? '保存中…' : activeTab === 'multi' ? `确认多人录入 (${multiItems.length}人)` : '确认收礼'}
             </button>
           </div>
         </div>

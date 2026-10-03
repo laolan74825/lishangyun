@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
@@ -24,6 +24,7 @@ const relationOptions: RelationTag[] = ['亲戚', '朋友', '同事', '同学', 
 
 /** 人员管理页（含往来明细 F-9.4、差额计算 F-9.5） */
 export default function PeoplePage() {
+  const navigate = useNavigate()
   const [keyword, setKeyword] = useState('')
   const [filterTag, setFilterTag] = useState<RelationTag | 'all'>('all')
 
@@ -187,12 +188,20 @@ export default function PeoplePage() {
       title="人员管理"
       description="管理人员档案，关联日常礼金往来"
       actions={
-        <button
-          onClick={openNew}
-          className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
-        >
-          ＋ 新增人员
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate({ to: '/people/batch-edit' })}
+            className="rounded-btn border border-primary px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10"
+          >
+            批量编辑
+          </button>
+          <button
+            onClick={openNew}
+            className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+          >
+            ＋ 新增人员
+          </button>
+        </div>
       }
     >
       {/* 筛选栏 */}
