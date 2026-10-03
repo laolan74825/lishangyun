@@ -7,14 +7,12 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import GuestbookStatusBadge from '../components/guestbook/GuestbookStatusBadge'
 import { cacheGuestbooks } from '../lib/dexie'
-import { useAppStore } from '../store/appStore'
 import type { PaymentAccount } from '../types'
 import {
   useAllGuestbookSummaries,
   useCreateGuestbook,
   useDeleteGuestbook,
   usePaymentAccounts,
-  useSaveTerminalSettings,
   useCollaborationInvites,
   useCreateCollaborationInvite,
   useRevokeCollaborationInvite,
@@ -333,9 +331,6 @@ export function GuestbookListPage() {
   const { toast, showToast } = useToast()
   const deleteMutation = useDeleteGuestbook()
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
-  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null)
   const [inviteGuestbookId, setInviteGuestbookId] = useState<number | null>(null)
 
   const active = useMemo(() => guestbooks.filter((g) => g.status === 'active'), [guestbooks])
@@ -350,25 +345,6 @@ export function GuestbookListPage() {
     }
   }, [active])
 
-  function toggleSelect(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function toggleSelectAll(ids: number[]) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      const allSelected = ids.every((id) => next.has(id))
-      if (allSelected) ids.forEach((id) => next.delete(id))
-      else ids.forEach((id) => next.add(id))
-      return next
-    })
-  }
-
   const handleDelete = () => {
     if (!deleteId) return
     const idToDelete = deleteId
@@ -376,11 +352,6 @@ export function GuestbookListPage() {
     deleteMutation.mutate(idToDelete, {
       onSuccess: () => {
         showToast('礼簿已删除')
-        setSelectedIds((prev) => {
-          const next = new Set(prev)
-          next.delete(idToDelete)
-          return next
-        })
       },
       onError: (e) => {
         showToast('删除失败：' + e.message)
@@ -388,64 +359,30 @@ export function GuestbookListPage() {
     })
   }
 
-  const handleBulkDelete = async () => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    setBulkDeleteOpen(false)
-    
-    const results = await Promise.allSettled(
-      ids.map((id) => deleteMutation.mutateAsync(id))
-    )
-    
-    const successfullyDeleted: number[] = []
-    const errors: string[] = []
-    
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        successfullyDeleted.push(ids[index])
-      } else {
-        const error = result.reason
-        errors.push(error.message || '删除失败')
-      }
-    })
-    
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      successfullyDeleted.forEach((deletedId) => next.delete(deletedId))
-      return next
-    })
-    
-    if (errors.length > 0) {
-      setBulkDeleteError(errors[0])
-    } else {
-      showToast(`已删除 ${successfullyDeleted.length} 个礼簿`)
-    }
-  }
-
   const Card = ({ gb }: { gb: (typeof guestbooks)[number] }) => {
     const pct = gb.total_records > 0
       ? Math.round((gb.checked_count / gb.total_records) * 100)
       : 0
-    const isSelected = gb.id ? selectedIds.has(gb.id) : false
     return (
-      <div
-        className={`flex h-full flex-col gap-3 rounded-card bg-card p-5 shadow-card transition-shadow hover:shadow-lg ${isSelected ? 'ring-2 ring-primary' : ''}`}
-      >
+      <div className="flex h-full flex-col gap-3 rounded-card bg-card p-5 shadow-card transition-shadow hover:shadow-lg">
         <div className="flex items-start justify-between">
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => gb.id && toggleSelect(gb.id)}
-              className="h-4 w-4 rounded border-line accent-primary"
-            />
-            <div>
+          <div>
+            <div className="flex items-center gap-2">
               <h3 className="text-lg font-bold text-ink">{gb.name}</h3>
-              <p className="mt-1 text-sm text-ink-secondary">
-                {gb.event_type} · {gb.event_date}
-              </p>
+              {gb.total_records === 0 && gb.id && (
+                <button
+                  onClick={() => setDeleteId(gb.id!)}
+                  className="rounded px-1.5 py-0.5 text-xs font-medium text-danger transition-colors hover:bg-danger-bg"
+                  title="删除礼簿"
+                >
+                  删除
+                </button>
+              )}
             </div>
-          </label>
+            <p className="mt-1 text-sm text-ink-secondary">
+              {gb.event_type} · {gb.event_date}
+            </p>
+          </div>
           <GuestbookStatusBadge status={gb.status} />
         </div>
         {gb.total_records > 0 && (
@@ -500,15 +437,6 @@ export function GuestbookListPage() {
               合并
             </button>
           )}
-          {gb.total_records === 0 && gb.id && (
-            <button
-              onClick={() => setDeleteId(gb.id!)}
-              className="rounded-btn border border-danger px-4 py-2.5 text-sm font-medium text-danger hover:bg-danger-bg"
-              title="删除礼簿"
-            >
-              删除
-            </button>
-          )}
         </div>
       </div>
     )
@@ -519,21 +447,12 @@ export function GuestbookListPage() {
       title="礼簿管理"
       description="管理您的宴请礼簿，新建或进入收礼现场"
       actions={
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setBulkDeleteOpen(true)}
-            disabled={selectedIds.size === 0}
-            className="rounded-btn border border-danger px-4 py-2 text-sm font-medium text-danger disabled:cursor-not-allowed disabled:border-disabled disabled:text-disabled hover:bg-danger-bg disabled:hover:bg-transparent"
-          >
-            删除礼簿 {selectedIds.size > 0 && `(${selectedIds.size})`}
-          </button>
-          <Link
-            to="/guestbooks/new"
-            className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
-          >
-            ＋ 新建礼簿
-          </Link>
-        </div>
+        <Link
+          to="/guestbooks/new"
+          className="rounded-btn bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+        >
+          ＋ 新建礼簿
+        </Link>
       }
     >
       {loading ? (
@@ -554,12 +473,6 @@ export function GuestbookListPage() {
           {active.length > 0 && (
             <section>
               <div className="mb-3 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={active.length > 0 && active.every((g) => g.id && selectedIds.has(g.id))}
-                  onChange={() => toggleSelectAll(active.map((g) => g.id!).filter(Boolean))}
-                  className="h-4 w-4 rounded border-line accent-primary"
-                />
                 <h2 className="text-sm font-bold text-ink">进行中的礼簿</h2>
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -572,12 +485,6 @@ export function GuestbookListPage() {
           {archived.length > 0 && (
             <section>
               <div className="mb-3 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={archived.length > 0 && archived.every((g) => g.id && selectedIds.has(g.id))}
-                  onChange={() => toggleSelectAll(archived.map((g) => g.id!).filter(Boolean))}
-                  className="h-4 w-4 rounded border-line accent-primary"
-                />
                 <h2 className="text-sm font-bold text-ink-secondary">已归档的礼簿</h2>
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -599,28 +506,6 @@ export function GuestbookListPage() {
         onConfirm={handleDelete}
         onCancel={() => setDeleteId(null)}
         loading={deleteMutation.isPending}
-      />
-
-      <ConfirmDialog
-        open={bulkDeleteOpen}
-        title="批量删除礼簿"
-        message={`确定删除选中的 ${selectedIds.size} 个礼簿吗？此操作不可恢复。`}
-        variant="danger"
-        confirmLabel="全部删除"
-        onConfirm={handleBulkDelete}
-        onCancel={() => setBulkDeleteOpen(false)}
-        loading={deleteMutation.isPending}
-      />
-
-      <ConfirmDialog
-        open={bulkDeleteError !== null}
-        title="删除失败"
-        message={bulkDeleteError || '删除失败'}
-        variant="warning"
-        confirmLabel="确定"
-        showCancel={false}
-        onConfirm={() => setBulkDeleteError(null)}
-        onCancel={() => setBulkDeleteError(null)}
       />
 
       {inviteGuestbookId !== null && (
@@ -650,7 +535,6 @@ const eventTypes = [
 
 export function GuestbookNewPage() {
   const navigate = useNavigate()
-  const operatorName = useAppStore((s) => s.operatorName)
   const { toast, showToast } = useToast()
   const { data: existingGuestbooks = [] } = useAllGuestbookSummaries()
 
@@ -658,13 +542,9 @@ export function GuestbookNewPage() {
   const [eventType, setEventType] = useState('wedding')
   const [eventDate, setEventDate] = useState(dayjs().format('YYYY-MM-DD'))
   const [note, setNote] = useState('')
-  // 收银员/微信账户默认"系统默认"（即系统当前激活的账户），可在下拉框中改选其他已有账户
-  const [cashAccount, setCashAccount] = useState<number | undefined>(undefined)
-  const [wechatAccount, setWechatAccount] = useState<number | undefined>(undefined)
   const [duplicateWarning, setDuplicateWarning] = useState(false)
 
   const createMutation = useCreateGuestbook()
-  const saveTerminal = useSaveTerminalSettings()
   const { data: cashAccounts = [], isPending: isCashLoading } = usePaymentAccounts({ type: 'cash' })
   const { data: wechatAccounts = [], isPending: isWechatLoading } = usePaymentAccounts({ type: 'wechat' })
 
@@ -680,14 +560,6 @@ export function GuestbookNewPage() {
     e.preventDefault()
     if (!name.trim()) { showToast('请填写礼簿名称'); return }
     if (!eventDate) { showToast('请选择宴席日期'); return }
-    
-    // 收银员的解析顺序：手动选择的具体账户 → 系统默认（当前激活的收银员）→ 第一个收银员账户（兜底）→ 本机操作员姓名
-    const selectedCashAccount =
-      allCash.find((acc) => acc.id === cashAccount) ??
-      allCash.find((acc) => acc.is_active) ??
-      allCash[0]
-    const operatorNameValue = selectedCashAccount?.name || operatorName || ''
-    if (!operatorNameValue.trim()) { showToast('请选择收银员'); return }
 
     const duplicate = existingGuestbooks.find((gb) => gb.name === name.trim())
     if (duplicate) {
@@ -702,15 +574,6 @@ export function GuestbookNewPage() {
         event_date: eventDate,
         operator_note: note || undefined,
       })
-      await saveTerminal.mutateAsync({
-        guestbook_id: gbId,
-        // 保存为礼簿级默认设置：收礼页和账户管理页均使用 client_id='default' 读取；
-        // 本终端如需不同账户，可在终端设置页按本机 client_id 单独覆盖
-        client_id: 'default',
-        operator_name: operatorNameValue.trim(),
-        default_cash_account: cashAccount,
-        default_wechat_account: wechatAccount,
-      })
       showToast('礼簿创建成功')
       setTimeout(() => {
         navigate({ to: '/guestbooks/$id/collect', params: { id: String(gbId) } })
@@ -721,7 +584,7 @@ export function GuestbookNewPage() {
     }
   }
 
-  const isPending = createMutation.isPending || saveTerminal.isPending
+  const isPending = createMutation.isPending
 
   // 账户信息加载中：先显示加载态，避免数据未返回时误判为"无账户"而闪现弹窗
   if (isAccountsLoading) {
@@ -773,34 +636,6 @@ export function GuestbookNewPage() {
                 onChange={(e) => setEventDate(e.target.value)}
                 className="h-12 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
               />
-            </label>
-
-            <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">收银员 <span className="text-danger">*</span></span>
-              <select
-                value={cashAccount ?? ''}
-                onChange={(e) => setCashAccount(e.target.value ? Number(e.target.value) : undefined)}
-                className="h-12 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
-              >
-                <option value="">系统默认</option>
-                {allCash.map((acc) => (
-                  <option key={acc.id} value={acc.id}>{acc.name}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">微信账户</span>
-              <select
-                value={wechatAccount ?? ''}
-                onChange={(e) => setWechatAccount(e.target.value ? Number(e.target.value) : undefined)}
-                className="h-12 rounded-btn border border-line bg-white px-4 text-base outline-none focus:border-2 focus:border-primary"
-              >
-                <option value="">系统默认</option>
-                {allWechat.map((acc) => (
-                  <option key={acc.id} value={acc.id}>{acc.name}</option>
-                ))}
-              </select>
             </label>
 
             <label className="flex flex-col gap-2">

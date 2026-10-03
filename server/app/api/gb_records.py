@@ -56,6 +56,57 @@ async def list_records(
     return PaginatedResponse(items=items, pagination=pagination)
 
 
+@router.get("/guestbooks/{gb_id}/records/deleted", response_model=list[GbRecordResponse])
+async def deleted_records(
+    gb_id: int,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    """本礼簿已删除（软删除）的收礼记录，供「删除记录」选项卡查看与恢复"""
+    await _require_read_access(db, current_user, gb_id)
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.guestbook_id == gb_id, GbRecord.is_deleted == True)
+        .order_by(GbRecord.deleted_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/gb-records/{record_id}/restore")
+async def restore_record(
+    record_id: int,
+    db: DbSession,
+    current_user: OwnerUser,
+    remark: str | None = Query(None, max_length=200),
+):
+    """恢复已删除的收礼记录，并写入操作日志"""
+    result = await db.execute(
+        select(GbRecord)
+        .where(GbRecord.id == record_id, GbRecord.owner_id == current_user.id,
+               GbRecord.is_deleted == True)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在或未被删除")
+    before = {"is_deleted": True, "deleted_at": str(record.deleted_at)}
+    record.is_deleted = False
+    record.deleted_at = None
+    record.updated_at = utcnow()
+    write_audit_log(db, current_user.id, "gb_records", record_id, "RESTORE",
+                    guestbook_id=record.guestbook_id,
+                    operator_name=current_user.username,
+                    before=before,
+                    after={
+                        "is_deleted": False,
+                        "guest_name": record.guest_name,
+                        "amount": record.amount,
+                        "payment_method": record.payment_method,
+                    },
+                    note=remark)
+    await db.commit()
+    return {"message": "已恢复"}
+
+
 @router.get("/guestbooks/{gb_id}/records/recent", response_model=list[GbRecordResponse])
 async def recent_records(
     gb_id: int,
@@ -216,13 +267,15 @@ async def update_record(
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
     before = model_to_dict(record)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True, exclude={"remark"})
+    for k, v in changes.items():
         setattr(record, k, v)
     record.updated_at = utcnow()
     write_audit_log(db, current_user.id, "gb_records", record_id, "UPDATE",
                     guestbook_id=record.guestbook_id,
                     operator_name=current_user.username,
-                    before=before, after=body.model_dump(exclude_unset=True))
+                    before=before, after=changes,
+                    note=body.remark)
     await db.commit()
     return {"message": "已更新"}
 
@@ -232,6 +285,7 @@ async def delete_record(
     record_id: int,
     db: DbSession,
     current_user: OwnerUser,
+    remark: str | None = Query(None, max_length=200),
 ):
     result = await db.execute(
         select(GbRecord)
@@ -246,7 +300,8 @@ async def delete_record(
     record.deleted_at = utcnow()
     write_audit_log(db, current_user.id, "gb_records", record_id, "DELETE",
                     guestbook_id=record.guestbook_id,
-                    operator_name=current_user.username, before=before)
+                    operator_name=current_user.username, before=before,
+                    note=remark)
     await db.commit()
     return {"message": "已删除"}
 

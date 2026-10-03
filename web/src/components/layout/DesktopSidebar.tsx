@@ -46,7 +46,8 @@ export default function DesktopSidebar() {
               {recentGuest.map((gb) => (
                 <Link
                   key={gb.id}
-                  to="/guestbooks/$id"
+                  // 收礼中的礼簿点击直达收礼页面，其余状态进入详情页
+                  to={gb.status === 'active' ? '/guestbooks/$id/collect' : '/guestbooks/$id'}
                   params={{ id: String(gb.id) }}
                   className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-ink hover:bg-bg"
                 >

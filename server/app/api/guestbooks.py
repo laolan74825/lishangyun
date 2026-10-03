@@ -8,12 +8,14 @@ from sqlalchemy import func, select
 from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.guestbook_access import get_guestbook_access
 from app.core.helpers import paginate_query, write_audit_log
+from app.models.authorization_action_log import AuthorizationActionLog
+from app.models.collaboration_invite import CollaborationInvite
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.gb_record import GbRecordBatchCreate, GbRecordCreate, GbRecordResponse
-from app.schemas.guestbook import GuestbookCreate, GuestbookResponse, GuestbookSummary, GuestbookUpdate
+from app.schemas.guestbook import GuestbookCloseRequest, GuestbookCreate, GuestbookResponse, GuestbookSummary, GuestbookUpdate
 from app.utils.idempotency import new_uuid
 
 router = APIRouter(prefix="/guestbooks", tags=["guestbooks"])
@@ -155,6 +157,7 @@ async def close_guestbook(
     guestbook_id: int,
     db: DbSession,
     current_user: EditorUser,
+    payload: GuestbookCloseRequest | None = None,
 ):
     result = await db.execute(
         select(Guestbook).where(
@@ -167,11 +170,70 @@ async def close_guestbook(
         raise HTTPException(status_code=404, detail="礼簿不存在")
     if gb.status != "active":
         raise HTTPException(status_code=400, detail="只有进行中的礼簿可以结束")
+    # 需全部对账才可以结束礼簿
+    unchecked_count = (await db.execute(
+        select(func.count(GbRecord.id))
+        .where(
+            GbRecord.guestbook_id == guestbook_id,
+            GbRecord.is_deleted == False,
+            GbRecord.check_status != "checked",
+        )
+    )).scalar_one()
+    if unchecked_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"还有 {unchecked_count} 笔收礼记录未对账，全部对账后才能结束礼簿",
+        )
     gb.status = "closing"
     gb.closing_at = utcnow()
+    summary = payload.summary if payload else None
+    if summary is not None:
+        gb.closing_summary = summary.strip() or None
+    gb.updated_at = utcnow()
+    # 结束收礼会中止协助收礼任务：撤销该礼簿所有待接受/协作中的邀请
+    invites_result = await db.execute(
+        select(CollaborationInvite).where(
+            CollaborationInvite.guestbook_id == guestbook_id,
+            CollaborationInvite.status.in_(("pending", "accepted")),
+        )
+    )
+    revoked_count = 0
+    for invite in invites_result.scalars().all():
+        old_status = invite.status
+        invite.status = "revoked"
+        action = "取消邀请" if old_status == "pending" else "撤销授权"
+        db.add(AuthorizationActionLog(
+            invite_id=invite.id, action_type="REVOKE",
+            operator_name=current_user.nickname or current_user.username,
+            detail=f"{action}（原状态：{old_status}，原因：结束收礼）",
+        ))
+        revoked_count += 1
+    await db.commit()
+    return {"message": "礼簿已进入收尾阶段", "revoked_invites": revoked_count}
+
+
+@router.post("/{guestbook_id}/reopen")
+async def reopen_guestbook(
+    guestbook_id: int,
+    db: DbSession,
+    current_user: EditorUser,
+):
+    result = await db.execute(
+        select(Guestbook).where(
+            Guestbook.id == guestbook_id, Guestbook.owner_id == current_user.id,
+            Guestbook.is_deleted == False
+        )
+    )
+    gb = result.scalar_one_or_none()
+    if not gb:
+        raise HTTPException(status_code=404, detail="礼簿不存在")
+    if gb.status != "closing":
+        raise HTTPException(status_code=400, detail="只有收尾中的礼簿可以返回收礼中")
+    gb.status = "active"
+    gb.closing_at = None
     gb.updated_at = utcnow()
     await db.commit()
-    return {"message": "礼簿已进入收尾阶段"}
+    return {"message": "礼簿已返回收礼中"}
 
 
 @router.post("/{guestbook_id}/archive")

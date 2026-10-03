@@ -17,9 +17,15 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
 
   const load = useCallback(async () => {
     setLoading(true)
-    const list = await getOperationLogs(guestbookId, 500)
-    setLogs(list)
-    setLoading(false)
+    try {
+      // 后端 page_size 上限 100
+      const list = await getOperationLogs(guestbookId, 100)
+      setLogs(list)
+    } catch {
+      setLogs([])
+    } finally {
+      setLoading(false)
+    }
   }, [guestbookId])
 
   useEffect(() => {
@@ -41,7 +47,67 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
     CREATE: { text: '新增', cls: 'bg-success-bg text-success-deep' },
     UPDATE: { text: '编辑', cls: 'bg-info/10 text-info' },
     DELETE: { text: '删除', cls: 'bg-danger-bg text-danger' },
+    RESTORE: { text: '恢复', cls: 'bg-primary/10 text-primary' },
     MERGE: { text: '合并', cls: 'bg-warning-bg text-warning' }
+  }
+
+  /* 精简摘要：从数据快照中提取非专业人员可读的信息 */
+  const fieldLabels: Record<string, string> = {
+    guest_name: '宾客',
+    amount: '金额',
+    payment_method: '支付方式',
+    account_id: '收款账户',
+    note: '备注',
+    agent_name: '代送人',
+    phone: '电话',
+    check_status: '对账状态',
+    is_private: '隐私',
+  }
+  const paymentText = (v: unknown) =>
+    v === 'cash' ? '现金' : v === 'wechat' ? '微信' : v === 'other' ? '其他' : String(v ?? '—')
+  const fieldValue = (key: string, v: unknown) => {
+    if (v === undefined || v === null || v === '') return '—'
+    if (key === 'amount' && typeof v === 'number') return `¥${(v / 100).toFixed(2)}`
+    if (key === 'payment_method') return paymentText(v)
+    if (typeof v === 'boolean') return v ? '是' : '否'
+    return String(v)
+  }
+
+  const summarize = (log: OperationLog): string | null => {
+    try {
+      let record: Record<string, unknown> | null = null
+      let changes: Record<string, { from: unknown; to: unknown }> | null = null
+
+      if (log.action_type === 'UPDATE') {
+        // UPDATE 的 after_data 只有被修改的字段：与 before_data 合并还原完整记录
+        const before = log.before_data ? JSON.parse(log.before_data) : {}
+        const after = log.after_data ? JSON.parse(log.after_data) : {}
+        record = { ...before, ...after }
+        changes = {}
+        for (const key of Object.keys(after)) {
+          if (key in fieldLabels) changes[key] = { from: before[key], to: after[key] }
+        }
+      } else {
+        const raw = log.after_data ?? log.before_data
+        if (!raw) return null
+        record = JSON.parse(raw)
+      }
+
+      if (!record || typeof record !== 'object' || !record.guest_name) return null
+      const parts: string[] = [`宾客「${record.guest_name}」`]
+      if (typeof record.amount === 'number') parts.push(`金额 ¥${(record.amount / 100).toFixed(2)}`)
+      if (record.payment_method) parts.push(paymentText(record.payment_method))
+      let summary = `收礼记录：${parts.join(' · ')}`
+      if (changes && Object.keys(changes).length > 0) {
+        const desc = Object.entries(changes)
+          .map(([k, c]) => `${fieldLabels[k]} ${fieldValue(k, c.from)} → ${fieldValue(k, c.to)}`)
+          .join('；')
+        summary += `\n修改内容：${desc}`
+      }
+      return summary
+    } catch {
+      return null
+    }
   }
 
   const formatJson = (json?: string) => {
@@ -71,6 +137,7 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
           <option value="CREATE">新增</option>
           <option value="UPDATE">编辑</option>
           <option value="DELETE">删除</option>
+          <option value="RESTORE">恢复</option>
           <option value="MERGE">合并</option>
         </select>
         <input
@@ -94,6 +161,7 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
           {filtered.map((log) => {
             const act = actionLabel[log.action_type] ?? { text: log.action_type, cls: 'bg-bg text-ink' }
             const isExpanded = expandedId === log.id
+            const summary = summarize(log)
             return (
               <div key={log.id} className="rounded-card bg-card p-4 shadow-card">
                 <div className="flex items-center gap-3">
@@ -112,12 +180,21 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
                     {dayjs(log.created_at).format('YYYY-MM-DD HH:mm:ss')}
                   </span>
                 </div>
+                {/* 精简版：面向非专业人员的摘要（含编辑时的修改内容说明） */}
+                <div className="mt-2 whitespace-pre-wrap text-sm text-ink">
+                  {summary ?? `${log.target_table} #${log.target_id}`}
+                </div>
+                {log.note && (
+                  <p className="mt-1 text-sm text-ink-secondary">
+                    备注：{log.note}
+                  </p>
+                )}
                 {(log.before_data || log.after_data) && (
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : log.id!)}
                     className="mt-2 text-xs text-info hover:underline"
                   >
-                    {isExpanded ? '收起数据快照' : '查看数据快照'}
+                    {isExpanded ? '收起详细记录' : '查看详细记录'}
                   </button>
                 )}
                 {isExpanded && (

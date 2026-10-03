@@ -19,6 +19,7 @@ class Guestbook(Base):
     host_person_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("persons.id", ondelete="SET NULL"), nullable=True)
     operator_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     closing_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    closing_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

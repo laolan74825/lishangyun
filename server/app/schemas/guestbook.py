@@ -23,6 +23,11 @@ class GuestbookUpdate(BaseModel):
     operator_note: str | None = None
 
 
+class GuestbookCloseRequest(BaseModel):
+    """结束收礼请求：可选填一份收礼总结说明（最多 2000 字）"""
+    summary: str | None = Field(None, max_length=2000)
+
+
 class GuestbookResponse(BaseModel):
     id: int
     owner_id: int
@@ -33,6 +38,7 @@ class GuestbookResponse(BaseModel):
     host_person_id: int | None = None
     operator_note: str | None = None
     closing_at: datetime | None = None
+    closing_summary: str | None = None
     archived_at: datetime | None = None
     is_deleted: bool
     created_at: datetime

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import dayjs from 'dayjs'
+import { useQueryClient } from '@tanstack/react-query'
 import Toast, { useToast } from './Toast'
 import type { GbRecord, PaymentAccount } from '../types'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { queryKeys } from '../hooks/queryKeys'
 import {
   getGbRecordsByGuestbook,
   getPaymentAccounts,
@@ -33,6 +35,13 @@ export default function ReconciliationPanel({
   const [operatorFilter, setOperatorFilter] = useState('')
 
   const { toast, showToast } = useToast()
+  const queryClient = useQueryClient()
+
+  /* 对账状态变更后：刷新礼簿汇总缓存（未对账计数、结束礼簿按钮状态等）与收礼记录缓存（列表中的对账标记） */
+  const invalidateSummary = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.stats.all })
+    queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.all })
+  }, [queryClient])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -73,6 +82,16 @@ export default function ReconciliationPanel({
     return { total, checkedCount, totalAmount, checkedAmount }
   }, [records])
 
+  /* 选中记录的对账状态：决定两个批量按钮哪个可用 */
+  const selectedRecords = useMemo(
+    () => records.filter((r) => r.id !== undefined && selectedIds.has(r.id)),
+    [records, selectedIds],
+  )
+  const allSelectedChecked =
+    selectedRecords.length > 0 && selectedRecords.every((r) => r.check_status === 'checked')
+  const allSelectedUnchecked =
+    selectedRecords.length > 0 && selectedRecords.every((r) => r.check_status !== 'checked')
+
   const progressPct = summary.total > 0 ? Math.round((summary.checkedCount / summary.total) * 100) : 0
 
   /* 选择操作 */
@@ -103,6 +122,7 @@ export default function ReconciliationPanel({
       await batchUpdateCheckStatus(Array.from(selectedIds), checked ? 'checked' : 'unchecked', operatorName, clientId)
       showToast(checked ? `已标记 ${selectedIds.size} 笔为已对账` : `已取消 ${selectedIds.size} 笔对账标记`)
       setSelectedIds(new Set())
+      invalidateSummary()
       await load()
     } catch (e) {
       showToast('操作失败：' + (e as Error).message)
@@ -181,15 +201,19 @@ export default function ReconciliationPanel({
       <div className="flex items-center gap-3">
         <button
           onClick={() => handleBatchCheck(true)}
-          disabled={selectedIds.size === 0}
+          disabled={selectedRecords.length === 0 || allSelectedChecked}
           className="rounded-btn bg-success px-4 py-2 text-sm font-medium text-white disabled:bg-disabled"
         >
           标记选中为已对账 ({selectedIds.size})
         </button>
         <button
           onClick={() => handleBatchCheck(false)}
-          disabled={selectedIds.size === 0}
-          className="rounded-btn border border-line px-4 py-2 text-sm font-medium text-ink-secondary disabled:opacity-40"
+          disabled={selectedRecords.length === 0 || allSelectedUnchecked}
+          className={`rounded-btn px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
+            selectedRecords.some((r) => r.check_status === 'checked')
+              ? 'border border-warning bg-warning text-white hover:bg-warning/90'
+              : 'border border-line text-ink-secondary'
+          }`}
         >
           取消对账标记
         </button>

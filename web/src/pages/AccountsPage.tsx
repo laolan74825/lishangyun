@@ -9,29 +9,19 @@ import {
   useCreatePaymentAccount,
   useUpdatePaymentAccount,
   useDeletePaymentAccount,
-  useGuestbooks,
-  useSaveTerminalSettings,
 } from '../hooks/useQueries'
-import { wechatRemainingLimit, getTerminalSettings } from '../lib/api-client'
+import { wechatRemainingLimit } from '../lib/api-client'
 
 // 微信账户默认每日限额：20万元 = 20,000,000 分
 const DEFAULT_WECHAT_LIMIT = 20_000_000 // 20万 = 20,000,000 分
 
 /**
- * 账户设置页：管理系统账户和礼簿账户
+ * 账户管理页：管理系统账户（收银员和微信账户）
  *
- * 两个标签页：
- * 1. 系统账户设置：管理全局的收银员和微信账户，每种类型只能有一个"默认账户"（is_active=true）
- * 2. 礼簿账户设置：为每个礼簿单独指定收款账户（可选，默认使用"系统默认"）
- *
- * "系统默认"解析逻辑（在 CollectPage 中实现）：
- * - 优先使用礼簿终端设置中指定的账户
- * - 如果礼簿设置为"系统默认"（undefined），则使用 is_active=true 的账户
- * - 如果都没有，则使用该类型的第一个账户（兜底）
+ * 全部礼簿统一使用系统当前账户（每种类型 is_active=true 的默认账户），
+ * 不再支持按礼簿单独设置收款账户。
  */
 export default function AccountsPage() {
-  // 当前激活的标签页：'system'（系统账户）或 'guestbook'（礼簿账户）
-  const [activeTab, setActiveTab] = useState<'system' | 'guestbook'>('system')
   // 获取所有收款账户（包括激活和未激活的）
   const { data: accounts = [], isLoading: loading } = usePaymentAccounts()
   // 微信账户的剩余额度映射：accountId -> remainingFen
@@ -42,65 +32,6 @@ export default function AccountsPage() {
   const createMutation = useCreatePaymentAccount()
   const updateMutation = useUpdatePaymentAccount()
   const deleteMutation = useDeletePaymentAccount()
-
-  /* ========== 礼簿级别账户设置 ========== */
-  // 获取所有礼簿列表
-  const { data: guestbooks = [] } = useGuestbooks()
-  // 保存终端设置的 mutation
-  const saveTerminal = useSaveTerminalSettings()
-  // 每个礼簿的账户设置映射：guestbookId -> { cash?: accountId, wechat?: accountId }
-  // 如果字段为 undefined，表示使用"系统默认"
-  const [guestbookSettings, setGuestbookSettings] = useState<Map<number, { cash?: number; wechat?: number }>>(new Map())
-
-  // 加载每个礼簿的终端设置（使用 client_id="default" 作为默认终端）
-  // 终端设置使用 (guestbook_id, client_id) 复合键，这里 client_id 固定为 "default"
-  useEffect(() => {
-    if (guestbooks.length === 0) return
-    const map = new Map<number, { cash?: number; wechat?: number }>()
-    // 并行获取所有礼簿的终端设置
-    Promise.all(
-      guestbooks.map(async (gb) => {
-        if (!gb.id) return
-        const settings = await getTerminalSettings(gb.id, 'default')
-        if (settings) {
-          // 保存该礼簿的默认收银员和微信账户 ID
-          map.set(gb.id, { cash: settings.default_cash_account, wechat: settings.default_wechat_account })
-        }
-      })
-    ).then(() => setGuestbookSettings(new Map(map)))
-  }, [guestbooks])
-
-  // 处理礼簿账户设置变更
-  // 当用户在"礼簿账户设置"标签页中修改下拉框时调用
-  // value 为 undefined 表示选择"系统默认"
-  const handleGuestbookAccountChange = async (
-    guestbookId: number,
-    field: 'cash' | 'wechat',
-    value: number | undefined,
-  ) => {
-    // 更新本地状态
-    const current = guestbookSettings.get(guestbookId) || {}
-    const updated = { ...current, [field]: value }
-    setGuestbookSettings((prev) => {
-      const next = new Map(prev)
-      next.set(guestbookId, updated)
-      return next
-    })
-    try {
-      // 保存到后端终端设置
-      // guestbook_id 作为查询参数，其余字段作为请求体
-      await saveTerminal.mutateAsync({
-        guestbook_id: guestbookId,
-        client_id: 'default',  // 默认终端
-        operator_name: '',
-        default_cash_account: updated.cash,  // undefined 表示"系统默认"
-        default_wechat_account: updated.wechat,  // undefined 表示"系统默认"
-      })
-      showToast('礼簿账户已更新')
-    } catch {
-      showToast('保存失败')
-    }
-  }
 
   // 加载每个未停用微信账户的今日剩余额度
   // 非默认但未停用的账户也可收款，需要同样关注额度
@@ -384,71 +315,40 @@ export default function AccountsPage() {
   return (
     <PageScaffold
       title="账户管理"
-      description="管理系统账户和礼簿账户"
+      description="管理系统收款账户，全部礼簿统一使用系统当前账户"
       actions={
-        // 顶部操作按钮：仅在"系统账户设置"标签页显示
         <div className="flex gap-2">
-          {activeTab === 'system' && (
-            <>
-              <button
-                onClick={() => openNew('cash')}
-                className="rounded-btn border border-line px-4 py-2 text-sm font-medium text-ink hover:border-primary"
-              >
-                ＋ 收银员
-              </button>
-              <button
-                onClick={() => openNew('wechat')}
-                className="rounded-btn bg-primary px-4 py-2 text-sm font-semibold text-white"
-              >
-                ＋ 微信账户
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => openNew('cash')}
+            className="rounded-btn border border-line px-4 py-2 text-sm font-medium text-ink hover:border-primary"
+          >
+            ＋ 收银员
+          </button>
+          <button
+            onClick={() => openNew('wechat')}
+            className="rounded-btn bg-primary px-4 py-2 text-sm font-semibold text-white"
+          >
+            ＋ 微信账户
+          </button>
         </div>
       }
     >
-      {/* 说明文字：解释两级账户设置的关系 */}
+      {/* 说明文字：统一使用系统当前账户 */}
       <p className="mb-4 text-sm text-ink-secondary">
-        可在<span className="text-primary">系统账户设置</span>中设置统一的收款设置，也可单独在
-        <span className="text-primary">礼簿账户设置</span>中独立设置收款账户
+        所有礼簿统一使用<span className="text-primary">系统当前账户</span>（每种类型标记为"默认"的账户）收款，
+        收款记录按礼簿区分归属。
       </p>
 
-      {/* 标签页切换按钮 */}
-      <div className="mb-6 flex gap-1 border-b border-line">
-        <button
-          onClick={() => setActiveTab('system')}
-          className={`px-4 py-2.5 text-sm font-medium transition-colors ${
-            activeTab === 'system'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-ink-secondary hover:text-ink'
-          }`}
-        >
-          系统账户设置
-        </button>
-        <button
-          onClick={() => setActiveTab('guestbook')}
-          className={`px-4 py-2.5 text-sm font-medium transition-colors ${
-            activeTab === 'guestbook'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-ink-secondary hover:text-ink'
-          }`}
-        >
-          礼簿账户设置
-        </button>
-      </div>
-
-      {/* ========== 系统账户设置标签页 ========== */}
+      {/* ========== 系统账户列表 ========== */}
       {/* 显示所有收银员和微信账户，每种类型只能有一个"默认账户" */}
-      {activeTab === 'system' && (
-        <>
-          {loading ? (
-            <p className="py-10 text-center text-ink-secondary">加载中…</p>
-          ) : (
-            <div className="flex flex-col gap-6">
-              {/* 收银员（现金账户）列表 */}
-              <section>
-                <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-ink">
-                  <span>💵</span> 收银员
+      {loading ? (
+        <p className="py-10 text-center text-ink-secondary">加载中…</p>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {/* 收银员（现金账户）列表 */}
+          <section>
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-ink">
+              <span>💵</span> 收银员
             </h2>
             {cashAccounts.length === 0 ? (
               <p className="rounded-card bg-bg py-6 text-center text-sm text-ink-secondary">暂无收银员</p>
@@ -476,102 +376,7 @@ export default function AccountsPage() {
               </div>
             )}
           </section>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ========== 礼簿账户设置标签页 ========== */}
-      {/* 为每个礼簿单独指定收款账户（可选） */}
-      {/* 如果选择"系统默认"（value=undefined），则使用系统账户设置中 is_active=true 的账户 */}
-      {activeTab === 'guestbook' && (
-        <section>
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-ink">
-            <span>📒</span> 礼簿账户设置
-          </h2>
-            {guestbooks.length === 0 ? (
-              <p className="rounded-card bg-bg py-6 text-center text-sm text-ink-secondary">暂无礼簿</p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {/* 过滤掉已归档的礼簿（已归档不可修改） */}
-                {guestbooks
-                  .filter((gb) => gb.status !== 'archived')
-                  .map((gb) => {
-                    const settings = guestbookSettings.get(gb.id!) || {}
-                    return (
-                      <div key={gb.id} className="rounded-card bg-card p-4 shadow-card">
-                        {/* 礼簿名称和状态 */}
-                        <div className="mb-3 flex items-center justify-between">
-                          <div>
-                            <h3 className="font-bold text-ink">{gb.name}</h3>
-                            <p className="text-xs text-ink-secondary">
-                              {gb.event_type} · {gb.event_date}
-                              {gb.status === 'closing' && ' · 收尾中'}
-                            </p>
-                          </div>
-                        </div>
-                        {/* 收银员和微信账户下拉选择器 */}
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {/* 收银员选择器 */}
-                          {/* value=undefined（空字符串）表示"系统默认" */}
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs font-medium text-ink-secondary">收银员</span>
-                            <select
-                              value={settings.cash ?? ''}  // undefined 转为空字符串显示"系统默认"
-                              onChange={(e) =>
-                                handleGuestbookAccountChange(
-                                  gb.id!,
-                                  'cash',
-                                  // 空字符串转回 undefined，表示"系统默认"
-                                  e.target.value ? Number(e.target.value) : undefined,
-                                )
-                              }
-                              disabled={gb.status === 'closing'}  // 收尾中不可修改
-                              className="h-10 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
-                            >
-                              <option value="">系统默认</option>
-                              {cashAccounts.filter((acc) => !acc.is_disabled).map((acc) => (
-                                <option key={acc.id} value={acc.id}>
-                                  {acc.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {/* 微信账户选择器 */}
-                          {/* 同上，value=undefined 表示"系统默认" */}
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs font-medium text-ink-secondary">微信账户</span>
-                            <select
-                              value={settings.wechat ?? ''}
-                              onChange={(e) =>
-                                handleGuestbookAccountChange(
-                                  gb.id!,
-                                  'wechat',
-                                  e.target.value ? Number(e.target.value) : undefined,
-                                )
-                              }
-                              disabled={gb.status === 'closing'}
-                              className="h-10 rounded-btn border border-line bg-white px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
-                            >
-                              <option value="">系统默认</option>
-                              {wechatAccounts.filter((acc) => !acc.is_disabled).map((acc) => (
-                                <option key={acc.id} value={acc.id}>
-                                  {acc.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-                    )
-                  })}
-              </div>
-            )}
-            {/* 提示：已归档的礼簿不可修改 */}
-            {guestbooks.some((gb) => gb.status === 'archived') && (
-              <p className="mt-2 text-xs text-ink-secondary">已归档的礼簿不可修改账户设置</p>
-            )}
-          </section>
+        </div>
       )}
 
       {/* ========== 新建/编辑账户表单弹窗 ========== */}

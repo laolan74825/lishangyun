@@ -85,6 +85,106 @@ class TestGuestbookLifecycle:
         resp = client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
         assert resp.status_code == 400
 
+    async def test_reopen_guestbook(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/reopen", headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp_get = client.get(f"/api/guestbooks/{gb_id}", headers=admin_headers)
+        assert resp_get.json()["status"] == "active"
+        assert resp_get.json()["closing_at"] is None
+
+    async def test_reopen_active_fails(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/reopen", headers=admin_headers)
+        assert resp.status_code == 400
+
+    async def test_close_with_unchecked_records_fails(
+        self, client, admin_headers, super_admin, db_session
+    ):
+        from app.models.gb_record import GbRecord
+
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        db_session.add(GbRecord(
+            uuid="11111111-1111-1111-1111-111111111111",
+            owner_id=super_admin.id, guestbook_id=gb_id,
+            guest_name="宾客甲", amount=20000, payment_method="cash",
+            check_status="unchecked",
+        ))
+        await db_session.commit()
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+        assert resp.status_code == 400
+        assert "未对账" in resp.json()["detail"]
+
+        resp_get = client.get(f"/api/guestbooks/{gb_id}", headers=admin_headers)
+        assert resp_get.json()["status"] == "active"
+
+    async def test_close_with_summary_saves_it(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+
+        resp = client.post(
+            f"/api/guestbooks/{gb_id}/close",
+            json={"summary": "  宴席顺利，现金已交接。  "},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+
+        resp_get = client.get(f"/api/guestbooks/{gb_id}", headers=admin_headers)
+        assert resp_get.json()["status"] == "closing"
+        assert resp_get.json()["closing_summary"] == "宴席顺利，现金已交接。"
+
+    async def test_close_without_summary(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp_get = client.get(f"/api/guestbooks/{gb_id}", headers=admin_headers)
+        assert resp_get.json()["closing_summary"] is None
+
+    async def test_close_revokes_pending_and_accepted_invites(
+        self, client, admin_headers, super_admin, normal_user, another_user, db_session
+    ):
+        from app.models.collaboration_invite import CollaborationInvite
+        from app.core.time import utcnow
+        from datetime import timedelta
+
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        now = utcnow()
+        db_session.add_all([
+            CollaborationInvite(
+                inviter_id=super_admin.id, invitee_id=normal_user.id, guestbook_id=gb_id,
+                invite_code="AAAAAA", permissions="record", status="pending",
+                signal_expires_at=now + timedelta(minutes=10),
+                collaboration_start_at=now - timedelta(minutes=1),
+                collaboration_end_at=now + timedelta(hours=1),
+            ),
+            CollaborationInvite(
+                inviter_id=super_admin.id, invitee_id=another_user.id, guestbook_id=gb_id,
+                invite_code="BBBBBB", permissions="both", status="accepted",
+                signal_expires_at=now + timedelta(minutes=10),
+                collaboration_start_at=now - timedelta(minutes=1),
+                collaboration_end_at=now + timedelta(hours=1),
+                accepted_at=now,
+            ),
+        ])
+        await db_session.commit()
+
+        resp = client.post(f"/api/guestbooks/{gb_id}/close", headers=admin_headers)
+        assert resp.status_code == 200
+        assert resp.json()["revoked_invites"] == 2
+
+        result = await db_session.execute(
+            select(CollaborationInvite).where(CollaborationInvite.guestbook_id == gb_id)
+        )
+        invites = result.scalars().all()
+        assert len(invites) == 2
+        assert all(i.status == "revoked" for i in invites)
+
     async def test_archive_from_active(self, client, admin_headers, db_session):
         gb_id = _create_guestbook(client, admin_headers).json()["id"]
 

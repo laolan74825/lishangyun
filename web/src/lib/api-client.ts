@@ -77,8 +77,12 @@ export async function getGuestbookById(id: number): Promise<Guestbook | undefine
   }
 }
 
-export async function closeGuestbook(id: number): Promise<void> {
-  await api.post(`/guestbooks/${id}/close`)
+export async function closeGuestbook(id: number, summary?: string): Promise<void> {
+  await api.post(`/guestbooks/${id}/close`, summary?.trim() ? { summary } : {})
+}
+
+export async function reopenGuestbook(id: number): Promise<void> {
+  await api.post(`/guestbooks/${id}/reopen`)
 }
 
 export async function archiveGuestbook(id: number): Promise<void> {
@@ -122,29 +126,44 @@ export async function updateGbRecord(
   changes: Partial<Pick<GbRecord, 'guest_name' | 'phone' | 'amount' | 'payment_method' | 'account_id' | 'note' | 'agent_name' | 'check_status' | 'record_time' | 'is_private'>>,
   operatorName?: string,
   clientId?: string,
+  remark?: string,
 ): Promise<void> {
-  await api.put(`/gb-records/${id}`, { ...changes, operator_name: operatorName, client_id: clientId })
+  await api.put(`/gb-records/${id}`, { ...changes, operator_name: operatorName, client_id: clientId, remark })
 }
 
 export async function deleteGbRecord(
   id: number,
   operatorName?: string,
   clientId?: string,
+  remark?: string,
 ): Promise<void> {
-  await api.delete(`/gb-records/${id}?operator_name=${encodeURIComponent(operatorName ?? '')}&client_id=${encodeURIComponent(clientId ?? '')}`)
+  const params = new URLSearchParams()
+  if (operatorName) params.set('operator_name', operatorName)
+  if (clientId) params.set('client_id', clientId)
+  if (remark?.trim()) params.set('remark', remark.trim())
+  const qs = params.toString()
+  await api.delete(`/gb-records/${id}${qs ? `?${qs}` : ''}`)
+}
+
+/** 本礼簿已删除（软删除）的收礼记录 */
+export async function getDeletedRecords(guestbookId: number): Promise<GbRecord[]> {
+  return api.get<GbRecord[]>(`/guestbooks/${guestbookId}/records/deleted`)
+}
+
+/** 恢复已删除的收礼记录，可附备注（写入操作日志） */
+export async function restoreGbRecord(id: number, remark?: string): Promise<void> {
+  const qs = remark?.trim() ? `?remark=${encodeURIComponent(remark.trim())}` : ''
+  await api.post(`/gb-records/${id}/restore${qs}`)
 }
 
 export async function updateCheckStatus(
   recordId: number,
   status: 'unchecked' | 'checked' | 'disputed',
-  operatorName?: string,
-  clientId?: string,
+  _operatorName?: string,
+  _clientId?: string,
 ): Promise<void> {
-  await api.patch(`/gb-records/${recordId}/check`, {
-    check_status: status,
-    operator_name: operatorName,
-    client_id: clientId,
-  })
+  // 后端契约：PATCH /gb-records/{id}/check?checked=true|false
+  await api.patch(`/gb-records/${recordId}/check?checked=${status === 'checked'}`)
 }
 
 export async function uncheckRecord(
@@ -166,14 +185,13 @@ export async function markRecordDisputed(
 export async function batchUpdateCheckStatus(
   recordIds: number[],
   status: 'unchecked' | 'checked' | 'disputed',
-  operatorName?: string,
-  clientId?: string,
+  _operatorName?: string,
+  _clientId?: string,
 ): Promise<void> {
+  // 后端契约：POST /gb-records/batch-check，body 为 { ids, checked }
   await api.post('/gb-records/batch-check', {
-    record_ids: recordIds,
-    check_status: status,
-    operator_name: operatorName,
-    client_id: clientId,
+    ids: recordIds,
+    checked: status === 'checked',
   })
 }
 
@@ -469,8 +487,25 @@ export async function getPaymentAccountById(id: number): Promise<PaymentAccount 
   }
 }
 
-/* ========================= 操作日志 ========================= */
+/** 账户在指定状态礼簿中的收款汇总项 */
+export interface AccountReceivedSummary {
+  account_id: number
+  record_count: number
+  total_amount: number
+  /** 今日已收金额（跨全部礼簿，用于微信每日限额） */
+  today_received: number
+}
 
+/** 各账户在指定状态（默认收礼中 active）礼簿中的收款汇总 */
+export async function getAccountsReceivedSummary(
+  guestbookStatus: string = 'active',
+): Promise<AccountReceivedSummary[]> {
+  return api.get<AccountReceivedSummary[]>(
+    `/payment-accounts/received-summary?guestbook_status=${guestbookStatus}`,
+  )
+}
+
+/* ========================= 操作日志 ========================= */
 export async function getOperationLogs(guestbookId: number, limit = 100): Promise<OperationLog[]> {
   const res = await api.get<PaginatedResponse<OperationLog>>(`/operation-logs?guestbook_id=${guestbookId}&page_size=${limit}`)
   return res.items

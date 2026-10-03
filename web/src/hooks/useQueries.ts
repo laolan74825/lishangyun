@@ -119,6 +119,45 @@ export function useDeleteGuestbook() {
   })
 }
 
+/** 结束收礼（active → closing），可附收礼总结说明；成功后失效礼簿缓存，状态即时刷新 */
+export function useCloseGuestbook() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, summary }: { id: number; summary?: string }) =>
+      api.closeGuestbook(id, summary),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.detail(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.all })
+      // 结束收礼会撤销协作邀请，协作相关缓存一并失效
+      queryClient.invalidateQueries({ queryKey: queryKeys.collaboration.all })
+    },
+  })
+}
+
+/** 返回收礼中（closing → active），成功后失效礼簿缓存，状态即时刷新 */
+export function useReopenGuestbook() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.reopenGuestbook(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.detail(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.all })
+    },
+  })
+}
+
+/** 归档礼簿（→ archived），成功后失效礼簿缓存，状态即时刷新 */
+export function useArchiveGuestbook() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.archiveGuestbook(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.detail(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.guestbooks.all })
+    },
+  })
+}
+
 /* ========================= 收礼记录（GbRecords）查询 Hooks =========================
  *
  * 收礼记录是礼簿中的核心数据，记录每位宾客的随礼信息。
@@ -198,15 +237,18 @@ export function useUpdateGbRecord() {
       changes,
       operatorName,
       clientId,
+      remark,
     }: {
       id: number
       // 允许修改的字段列表
       changes: Partial<Pick<GbRecord, 'guest_name' | 'phone' | 'amount' | 'payment_method' | 'account_id' | 'note' | 'agent_name' | 'check_status' | 'record_time' | 'is_private'>>
       operatorName?: string  // 操作员姓名（用于审计日志）
       clientId?: string      // 终端标识（用于审计日志）
-    }) => api.updateGbRecord(id, changes, operatorName, clientId),
+      remark?: string        // 修改备注（写入操作日志）
+    }) => api.updateGbRecord(id, changes, operatorName, clientId, remark),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.operationLogs.all })
     },
   })
 }
@@ -219,13 +261,39 @@ export function useDeleteGbRecord() {
       id,
       operatorName,
       clientId,
+      remark,
     }: {
       id: number
       operatorName?: string  // 操作员姓名（用于审计日志）
       clientId?: string      // 终端标识（用于审计日志）
-    }) => api.deleteGbRecord(id, operatorName, clientId),
+      remark?: string        // 删除备注（写入操作日志）
+    }) => api.deleteGbRecord(id, operatorName, clientId, remark),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.operationLogs.all })
+    },
+  })
+}
+
+/** 获取本礼簿已删除的收礼记录（「删除记录」选项卡） */
+export function useDeletedRecords(guestbookId: number) {
+  return useQuery({
+    queryKey: [...queryKeys.gbRecords.lists(), 'deleted', guestbookId] as const,
+    queryFn: () => api.getDeletedRecords(guestbookId),
+    enabled: guestbookId > 0,
+  })
+}
+
+/** 恢复已删除收礼记录的 mutation hook，成功后刷新记录列表、汇总与操作日志 */
+export function useRestoreGbRecord() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, remark }: { id: number; remark?: string }) =>
+      api.restoreGbRecord(id, remark),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.gbRecords.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.operationLogs.all })
     },
   })
 }
@@ -470,6 +538,14 @@ export function useTerminalSettings(guestbookId: number, clientId: string) {
     queryKey: queryKeys.terminalSettings.detail(guestbookId, clientId),
     queryFn: () => api.getTerminalSettings(guestbookId, clientId),
     enabled: guestbookId > 0 && !!clientId,  // 两个参数都有效时才请求
+  })
+}
+
+/** 各账户在收礼中礼簿的收款汇总（账户统计 Tab，含今日已收用于微信限额） */
+export function useAccountsReceivedSummary(guestbookStatus: string = 'active') {
+  return useQuery({
+    queryKey: [...queryKeys.paymentAccounts.all, 'receivedSummary', guestbookStatus] as const,
+    queryFn: () => api.getAccountsReceivedSummary(guestbookStatus),
   })
 }
 

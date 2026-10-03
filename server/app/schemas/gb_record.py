@@ -31,7 +31,8 @@ class GbRecordUpdate(BaseModel):
     record_time: datetime | None = None
     person_id: int | None = None
     is_private: bool | None = None
-
+    # 修改原因/备注：仅写入操作日志，不落到记录字段
+    remark: str | None = Field(None, max_length=200)
 
 class GbRecordResponse(BaseModel):
     id: int
@@ -53,6 +54,7 @@ class GbRecordResponse(BaseModel):
     is_private: bool
     sync_version: int
     is_deleted: bool
+    deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

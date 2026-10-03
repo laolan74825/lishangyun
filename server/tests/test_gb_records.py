@@ -74,6 +74,100 @@ class TestGbRecordCRUD:
         resp_list = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
         assert resp_list.json()["pagination"]["total_count"] == 0
 
+    async def test_update_record_with_remark_logs_note(self, client, admin_headers, db_session):
+        from app.models.operation_log import OperationLog
+
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.put(f"/api/gb-records/{record_id}", json={
+            "amount": 60000,
+            "remark": "金额录入错误，已核对修正",
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "UPDATE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.note == "金额录入错误，已核对修正"
+
+    async def test_delete_record_with_remark_logs_note(self, client, admin_headers, db_session):
+        from app.models.operation_log import OperationLog
+
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.delete(
+            f"/api/gb-records/{record_id}?remark={'重复录入的记录'}",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == record_id,
+                OperationLog.action_type == "DELETE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.note == "重复录入的记录"
+
+    async def test_deleted_records_list_and_restore(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers)
+        keep_id = _create_record(client, admin_headers, gb_id, guest_name="保留").json()
+        del_id = _create_record(client, admin_headers, gb_id, guest_name="误删").json()
+        client.delete(f"/api/gb-records/{del_id}", headers=admin_headers)
+
+        # 已删除列表：只包含软删除记录，且带删除时间
+        resp = client.get(f"/api/guestbooks/{gb_id}/records/deleted", headers=admin_headers)
+        assert resp.status_code == 200
+        deleted = resp.json()
+        assert [r["id"] for r in deleted] == [del_id]
+        assert deleted[0]["guest_name"] == "误删"
+        assert deleted[0]["deleted_at"] is not None
+
+        # 正常列表不再包含该记录
+        resp_list = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
+        ids = [r["id"] for r in resp_list.json()["items"]]
+        assert del_id not in ids and keep_id in ids
+
+        # 恢复：记录回到正常列表，并写入 RESTORE 日志（含备注）
+        resp = client.post(
+            f"/api/gb-records/{del_id}/restore?remark={'误删恢复'}",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+
+        resp_list = client.get(f"/api/guestbooks/{gb_id}/records", headers=admin_headers)
+        ids = [r["id"] for r in resp_list.json()["items"]]
+        assert del_id in ids
+
+        resp_deleted = client.get(f"/api/guestbooks/{gb_id}/records/deleted", headers=admin_headers)
+        assert resp_deleted.json() == []
+
+        result = await db_session.execute(
+            select(OperationLog).where(
+                OperationLog.target_table == "gb_records",
+                OperationLog.target_id == del_id,
+                OperationLog.action_type == "RESTORE",
+            )
+        )
+        log = result.scalar_one()
+        assert log.note == "误删恢复"
+
+    async def test_restore_not_deleted_fails(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers)
+        record_id = _create_record(client, admin_headers, gb_id).json()
+
+        resp = client.post(f"/api/gb-records/{record_id}/restore", headers=admin_headers)
+        assert resp.status_code == 404
+
 
 class TestGbRecordBatch:
     async def test_batch_create(self, client, admin_headers, db_session):

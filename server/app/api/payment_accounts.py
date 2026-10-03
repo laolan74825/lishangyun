@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.helpers import paginate_query
 from app.models.gb_record import GbRecord
+from app.models.guestbook import Guestbook
 from app.models.payment_account import PaymentAccount
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -52,6 +53,70 @@ async def list_accounts(
     # 执行分页查询
     items, pagination = await paginate_query(db, stmt, page, page_size)
     return PaginatedResponse(items=items, pagination=pagination)
+
+
+# 各收款账户在指定状态礼簿中的收款汇总（账户统计用）
+# 必须定义在 /{account_id} 之前，否则会被路径参数路由拦截
+@router.get("/received-summary")
+async def received_summary(
+    current_user: CurrentUser,
+    db: DbSession,
+    guestbook_status: str = Query("active", description="按礼簿状态筛选：active/closing/archived"),
+):
+    """各收款账户在指定状态礼簿中的收款汇总（账户统计用）。
+
+    返回每个账户的笔数、金额，以及今日已收金额（跨全部礼簿，用于微信每日限额）。
+    """
+    # 今日时间范围（本地日期换算为 UTC，与 received-today 口径一致）
+    today = datetime.now(timezone.utc).astimezone()
+    start = datetime.combine(today.date(), datetime.min.time()).astimezone(timezone.utc).replace(tzinfo=None)
+    end = datetime.combine(today.date(), datetime.max.time()).astimezone(timezone.utc).replace(tzinfo=None)
+
+    # 按账户聚合：指定状态礼簿中的收款（记录需归属未删除礼簿）
+    stmt = (
+        select(
+            GbRecord.account_id,
+            func.count(GbRecord.id).label("record_count"),
+            func.coalesce(func.sum(GbRecord.amount), 0).label("total_amount"),
+        )
+        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
+        .where(
+            GbRecord.owner_id == current_user.id,
+            GbRecord.is_deleted == False,
+            GbRecord.account_id.isnot(None),
+            Guestbook.is_deleted == False,
+            Guestbook.status == guestbook_status,
+        )
+        .group_by(GbRecord.account_id)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    # 今日各账户已收（跨全部礼簿）
+    today_stmt = (
+        select(
+            GbRecord.account_id,
+            func.coalesce(func.sum(GbRecord.amount), 0).label("today_amount"),
+        )
+        .where(
+            GbRecord.owner_id == current_user.id,
+            GbRecord.is_deleted == False,
+            GbRecord.account_id.isnot(None),
+            GbRecord.record_time >= start,
+            GbRecord.record_time <= end,
+        )
+        .group_by(GbRecord.account_id)
+    )
+    today_map = {r[0]: r[1] for r in (await db.execute(today_stmt)).all()}
+
+    return [
+        {
+            "account_id": r[0],
+            "record_count": r[1],
+            "total_amount": r[2],
+            "today_received": today_map.get(r[0], 0),
+        }
+        for r in rows
+    ]
 
 
 # 获取单个账户详情

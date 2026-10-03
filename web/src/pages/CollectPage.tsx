@@ -29,7 +29,6 @@ import {
   useGuestbook,
   usePaymentAccounts,
   useRecentGbRecords,
-  useTerminalSettings,
   useCreateGbRecord,
   useCreateGbRecordBatch,
   useUpdateGbRecord,
@@ -57,7 +56,6 @@ export default function CollectPage() {
   const { data: guestbook } = useGuestbook(guestbookId)
   const { data: allAccounts = [] } = usePaymentAccounts()
   const { data: recentRecords = [] } = useRecentGbRecords(guestbookId, 50)
-  const { data: terminalSettings } = useTerminalSettings(guestbookId, 'default')
 
   /* ---------- WebSocket 协作 ---------- */
   useGuestbookWebSocket(guestbookId)
@@ -144,25 +142,16 @@ export default function CollectPage() {
     const typeAccounts = allAccounts.filter((a) => a.type === type && !a.is_disabled)
     if (typeAccounts.length === 0) return
 
-    // 1. 礼簿终端默认（礼簿账户设置中单独配置的）
-    const terminalDefaultId = type === 'cash'
-      ? terminalSettings?.default_cash_account
-      : terminalSettings?.default_wechat_account
-    if (terminalDefaultId && typeAccounts.some((a) => a.id === terminalDefaultId)) {
-      setAccountId(terminalDefaultId)
-      return
-    }
-
-    // 2. 系统级默认（账户设置中设为默认值的）
+    // 统一使用系统当前账户（每种类型 is_active=true 的默认账户）
     const systemDefault = typeAccounts.find((a) => a.is_active)
     if (systemDefault) {
       setAccountId(systemDefault.id!)
       return
     }
 
-    // 3. 兜底：第一个同类型账户
+    // 兜底：第一个同类型账户
     setAccountId(typeAccounts[0].id!)
-  }, [paymentMethod, terminalSettings, allAccounts])
+  }, [paymentMethod, allAccounts])
 
   const selectedAccount = useMemo(() => {
     if (!accountId) return undefined

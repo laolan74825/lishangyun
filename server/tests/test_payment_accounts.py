@@ -149,6 +149,43 @@ class TestReceivedToday:
         assert resp.json()["received"] == 50000
 
 
+class TestReceivedSummary:
+    async def test_received_summary_active_guestbooks_only(self, client, admin_headers, db_session):
+        from tests.test_gb_records import _create_guestbook, _create_record
+
+        # 系统当前账户
+        cash_id = _create_account(client, admin_headers, name="收银员甲").json()
+
+        # 收礼中的礼簿：一笔收款记到当前账户
+        gb_active = _create_guestbook(client, admin_headers)
+        _create_record(client, admin_headers, gb_active, amount=50000,
+                       payment_method="cash").json()
+        rec_id = _create_record(client, admin_headers, gb_active, amount=30000,
+                                payment_method="cash").json()
+        # 给记录指定账户（默认创建时 account_id 为空）
+        client.put(f"/api/gb-records/{rec_id}", json={"account_id": cash_id}, headers=admin_headers)
+
+        # 收尾中的礼簿：不应计入 active 汇总
+        gb_closing = _create_guestbook(client, admin_headers)
+        closing_rec = _create_record(client, admin_headers, gb_closing, amount=70000,
+                                     payment_method="cash").json()
+        # 同样指定到当前账户，验证今日已收是跨礼簿口径
+        client.put(f"/api/gb-records/{closing_rec}", json={"account_id": cash_id}, headers=admin_headers)
+        client.patch(f"/api/gb-records/{closing_rec}/check?checked=true", headers=admin_headers)
+        client.post(f"/api/guestbooks/{gb_closing}/close", headers=admin_headers)
+
+        resp = client.get("/api/payment-accounts/received-summary?guestbook_status=active",
+                          headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["account_id"] == cash_id
+        assert data[0]["record_count"] == 1
+        assert data[0]["total_amount"] == 30000
+        # 今日已收跨礼簿口径（含收尾中礼簿的 70000）
+        assert data[0]["today_received"] == 100000
+
+
 class TestDataIsolation:
     async def test_user_cannot_see_other_accounts(self, client, admin_headers, user_headers, db_session):
         _create_account(client, admin_headers)
