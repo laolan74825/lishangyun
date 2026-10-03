@@ -1,5 +1,11 @@
 """M4 integration test: approvals + notifications."""
 import asyncio
+import os
+import sys
+
+# 允许从任意工作目录直接运行：python scripts/m4_integration_check.py
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select, delete
 
