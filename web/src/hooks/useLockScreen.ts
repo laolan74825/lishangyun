@@ -5,10 +5,9 @@ export function useLockScreen() {
   const { lockState, setLocked, updateLastActivity } = useAppStore()
 
   const handleActivity = useCallback(() => {
+    // 已锁屏时活动不解除锁定：解锁只能走锁屏界面的密码/锁屏密码验证
+    if (lockState.isLocked) return
     updateLastActivity()
-    if (lockState.isLocked) {
-      setLocked(false)
-    }
   }, [lockState.isLocked, setLocked, updateLastActivity])
 
   useEffect(() => {
