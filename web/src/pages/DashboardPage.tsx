@@ -11,15 +11,21 @@ import {
   useGuestbooks,
   useDailyRecords,
   useStatsOverview,
-  useGuestbookSummary,
+  useAllGuestbookSummaries,
   useRecentGbRecords,
   usePendingInvites,
   useAcceptCollaborationInvite,
   useRejectCollaborationInvite,
 } from '../hooks/useQueries'
 
-function ActiveGuestbookItem({ gb }: { gb: Guestbook }) {
-  const { data: summary } = useGuestbookSummary(gb.id!)
+/** 礼簿汇总条目（与 api.getAllGuestbookSummaries 返回项一致） */
+type GuestbookSummaryItem = Guestbook & {
+  total_records: number
+  total_amount: number
+  checked_count: number
+}
+
+function ActiveGuestbookItem({ gb, summary }: { gb: Guestbook; summary?: GuestbookSummaryItem }) {
   const pct = summary && summary.total_records > 0
     ? Math.round((summary.checked_count / summary.total_records) * 100)
     : 0
@@ -269,6 +275,12 @@ export default function DashboardPage() {
   // 全量累计（不传日期 = 所有年份）
   const { data: totalSum } = useStatsOverview({})
   const { data: allGuestbooks = [], isLoading: gbLoading } = useGuestbooks()
+  // 一次批量请求替代每个礼簿单独查汇总（首页 N+1 优化）
+  const { data: summaries = [] } = useAllGuestbookSummaries()
+  const summaryById = useMemo(
+    () => new Map(summaries.map((s) => [s.id, s as GuestbookSummaryItem])),
+    [summaries],
+  )
   const { data: recentDaily = [], isLoading: dailyLoading } = useDailyRecords(recentDailyFilters)
 
   const activeGuestbooks = useMemo(
@@ -380,7 +392,7 @@ export default function DashboardPage() {
               ) : (
                 <ul className="mt-3 flex flex-col gap-3">
                   {activeGuestbooks.map((gb) => (
-                    <ActiveGuestbookItem key={gb.id} gb={gb} />
+                    <ActiveGuestbookItem key={gb.id} gb={gb} summary={summaryById.get(gb.id!)} />
                   ))}
                 </ul>
               )}
