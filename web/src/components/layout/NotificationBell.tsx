@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { useUnreadNotificationCount } from '../../hooks/useQueries'
+import { queryKeys } from '../../hooks/queryKeys'
 import {
   listNotifications,
-  getUnreadNotificationCount,
   markNotificationRead,
   markAllNotificationsRead,
 } from '../../lib/api-client'
@@ -19,20 +21,25 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark' | 'light' } = {}) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const refresh = useCallback(async () => {
-    try {
-      const { unread_count } = await getUnreadNotificationCount()
-      setUnreadCount(unread_count)
-    } catch { /* ignore */ }
-  }, [])
-
-  useEffect(() => { refresh() }, [refresh])
+  // 与顶栏另一个铃铛实例共享缓存，全应用只发一次未读数请求
+  const { data: unreadData, refetch: refreshUnread } = useUnreadNotificationCount()
+  const unreadCount = unreadData?.unread_count ?? 0
+  /** 本地同步未读数（标记已读/全部已读后写回共享缓存，两个铃铛实例同步更新） */
+  function setUnreadCount(update: number | ((count: number) => number)) {
+    queryClient.setQueryData<{ unread_count: number }>(
+      queryKeys.notifications.unreadCount(),
+      (old) => {
+        const current = old?.unread_count ?? 0
+        return { unread_count: typeof update === 'function' ? update(current) : update }
+      },
+    )
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -50,7 +57,7 @@ export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark
       try {
         const [data] = await Promise.all([
           listNotifications({ page_size: 8 }),
-          refresh(),
+          refreshUnread(),
         ])
         setNotifications(data)
       } catch { /* ignore */ }

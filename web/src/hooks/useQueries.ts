@@ -1010,3 +1010,18 @@ export function useCollaborationInviteLogs(inviteId: number | null) {
     enabled: inviteId !== null,
   })
 }
+
+/* ========================= 通知（Notification）查询 Hooks ========================= */
+
+/**
+ * 未读通知数：移动顶栏与桌面顶栏各挂一个铃铛，共享同一 queryKey，
+ * 整页只发一次请求；标记已读后由调用方 setQueryData 同步两个实例
+ */
+export function useUnreadNotificationCount() {
+  return useQuery({
+    queryKey: queryKeys.notifications.unreadCount(),
+    queryFn: () => api.getUnreadNotificationCount(),
+    staleTime: 30_000,
+    retry: false,
+  })
+}

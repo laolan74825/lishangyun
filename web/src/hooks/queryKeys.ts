@@ -87,4 +87,9 @@ export const queryKeys = {
     accepted: () => [...queryKeys.collaboration.all, 'accepted'] as const,
     logs: (inviteId: number) => [...queryKeys.collaboration.all, 'logs', inviteId] as const,
   },
+  notifications: {
+    all: ['notifications'] as const,
+    // 移动顶栏与桌面顶栏各有一个铃铛实例，共享同一 key，全应用只发一次请求
+    unreadCount: () => [...queryKeys.notifications.all, 'unreadCount'] as const,
+  },
 }
