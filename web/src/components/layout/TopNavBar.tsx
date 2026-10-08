@@ -8,7 +8,6 @@ const navItems = [
   { to: '/people', label: '人员管理' },
   { to: '/stats', label: '统计报表' },
   { to: '/accounts', label: '账户管理' },
-  { to: '/import', label: '数据导入' },
 ]
 
 function NavLink({ to, children }: { to: string; children: React.ReactNode }) {

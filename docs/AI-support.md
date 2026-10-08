@@ -754,9 +754,12 @@ GiftRegistry/
 
 ### 11.6 统计与报表
 
-- /api/stats/summary — 年度/月度汇总
-- /api/stats/guestbook — 礼簿专项统计
-- /api/stats/accounts — 账户对账报表
+- /api/stats/overview — 收支总览（日常随礼 + 礼簿收礼）；支持 start_date/end_date 区间；返回 total_out / total_in / net / adjustment_total / net_with_adjustment（净差额含差额调整口径）
+- /api/stats/monthly-trend — 月度收支趋势（?months=1-36，按数据日期归月）
+- /api/stats/event-distribution — 按事由统计（?type=in 收到（默认，含礼簿收礼）| out 送出（仅日常随礼））
+- /api/stats/guestbook-summary — 礼簿专项统计
+- /api/stats/person-ranking — 人员往来排行（?limit=1-100&sort=out|in|net，净额含差额调整）
+- 接口字段与口径详见 docs/2026-10-08-统计报表功能增强与导航调整汇总.md
 
 ### 11.7 数据管理
 

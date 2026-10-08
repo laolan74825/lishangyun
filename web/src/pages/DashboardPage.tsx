@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Toast, { useToast } from '../components/Toast'
 import GuestbookStatusBadge from '../components/guestbook/GuestbookStatusBadge'
 import type { CollaborationInvitePending, Guestbook } from '../types'
+import { formatFen } from '../lib/format'
 import {
   useGuestbooks,
   useDailyRecords,
@@ -252,6 +253,8 @@ export default function DashboardPage() {
 
   const { data: monthSum } = useStatsOverview(monthlyFilters)
   const { data: yearSum } = useStatsOverview(yearlyFilters)
+  // 全量累计（不传日期 = 所有年份）
+  const { data: totalSum } = useStatsOverview({})
   const { data: allGuestbooks = [], isLoading: gbLoading } = useGuestbooks()
   const { data: recentDaily = [], isLoading: dailyLoading } = useDailyRecords(recentDailyFilters)
 
@@ -269,11 +272,7 @@ export default function DashboardPage() {
 
   const monthly = monthSum ?? { total_out: 0, total_in: 0, net: 0 }
   const yearly = yearSum ?? { total_out: 0, total_in: 0, net: 0 }
-
-  const formatAmount = (fen: number) => {
-    const sign = fen >= 0 ? '' : '-'
-    return `${sign}¥${Math.abs(fen / 100).toFixed(2)}`
-  }
+  const totalNet = totalSum?.net ?? 0
 
   return (
     <PageScaffold title="欢迎回来" description="您的礼金往来总览">
@@ -292,7 +291,7 @@ export default function DashboardPage() {
             ].map((card) => (
               <div key={card.label} className="min-w-0 rounded-card bg-card p-5 shadow-card">
                 <div className="text-caption text-ink-secondary">{card.label}</div>
-                <div className={`mt-2 break-all text-2xl font-bold xl:text-amount ${card.color}`}>{formatAmount(card.value)}</div>
+                <div className={`mt-2 break-all text-2xl font-bold xl:text-amount ${card.color}`}>{formatFen(card.value)}</div>
               </div>
             ))}
           </div>
@@ -323,20 +322,26 @@ export default function DashboardPage() {
           <div className="rounded-card bg-card p-5 shadow-card">
             <h2 className="text-section-title">本年汇总</h2>
             <p className="mt-1 text-xs text-ink-secondary">含日常随礼与礼簿现场收礼</p>
-            <div className="mt-3 grid grid-cols-3 gap-4">
+            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="min-w-0 text-center">
-                <div className="text-lg font-bold text-danger break-all">{formatAmount(yearly.total_out)}</div>
+                <div className="text-lg font-bold text-danger break-all">{formatFen(yearly.total_out)}</div>
                 <div className="text-xs text-ink-secondary">送出合计</div>
               </div>
               <div className="min-w-0 text-center">
-                <div className="text-lg font-bold text-success break-all">{formatAmount(yearly.total_in)}</div>
+                <div className="text-lg font-bold text-success break-all">{formatFen(yearly.total_in)}</div>
                 <div className="text-xs text-ink-secondary">收到合计</div>
               </div>
               <div className="min-w-0 text-center">
                 <div className={`text-lg font-bold break-all ${yearly.net >= 0 ? 'text-success' : 'text-danger'}`}>
-                  {formatAmount(yearly.net)}
+                  {formatFen(yearly.net)}
                 </div>
-                <div className="text-xs text-ink-secondary">净差额</div>
+                <div className="text-xs text-ink-secondary">本年净差额</div>
+              </div>
+              <div className="min-w-0 text-center">
+                <div className={`text-lg font-bold break-all ${totalNet >= 0 ? 'text-success' : 'text-danger'}`}>
+                  {formatFen(totalNet)}
+                </div>
+                <div className="text-xs text-ink-secondary">累计净差额</div>
               </div>
             </div>
           </div>

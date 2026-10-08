@@ -2,17 +2,7 @@ import dayjs from 'dayjs'
 import type { GbRecord, Guestbook } from '../types'
 import { getGbRecordsPaginated } from './api-client'
 import { amountToChinese } from './format'
-
-const EVENT_TYPE_LABELS: Record<string, string> = {
-  wedding: '婚礼',
-  birthday: '周岁宴',
-  fullmoon: '满月酒',
-  housewarming: '乔迁',
-  graduation: '升学宴',
-  funeral: '丧葬',
-  holiday: '节日红包',
-  other: '其他',
-}
+import { eventTypeLabel } from './eventType'
 
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -70,7 +60,7 @@ export function printGuestbook(guestbook: Guestbook, records: GbRecord[]): void 
   const pageTables = pages.map((p, pi) => `
   <div class="page${pi < pages.length - 1 ? ' break' : ''}">
     ${pi === 0 ? `<h1>${esc(guestbook.name)}　礼单</h1>
-    <p class="meta">事由：${EVENT_TYPE_LABELS[guestbook.event_type] ?? esc(guestbook.event_type)}　·　日期：${esc(guestbook.event_date)}　·　共 ${sorted.length} 笔</p>` : ''}
+    <p class="meta">事由：${esc(eventTypeLabel(guestbook.event_type))}　·　日期：${esc(guestbook.event_date)}　·　共 ${sorted.length} 笔</p>` : ''}
     <table>
       <thead>
         <tr><th>#</th><th>宾客姓名</th><th>电话</th><th style="text-align:center">礼金</th><th>备注</th></tr>

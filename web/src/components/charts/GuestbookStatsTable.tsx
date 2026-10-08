@@ -1,11 +1,11 @@
 import { Link } from '@tanstack/react-router'
 import type { GuestbookStatsItem } from '../../types'
+import { eventTypeLabel } from '../../lib/eventType'
+import { formatFen } from '../../lib/format'
 
 interface Props {
   data: GuestbookStatsItem[]
 }
-
-const formatY = (fen: number) => `¥${(fen / 100).toFixed(2)}`
 
 export default function GuestbookStatsTable({ data }: Props) {
   if (data.length === 0) {
@@ -39,10 +39,10 @@ export default function GuestbookStatsTable({ data }: Props) {
                     {gb.guestbook_name}
                   </Link>
                 </td>
-                <td className="py-2.5 pr-3 text-ink-secondary">{gb.event_type}</td>
+                <td className="py-2.5 pr-3 text-ink-secondary">{eventTypeLabel(gb.event_type)}</td>
                 <td className="py-2.5 pr-3 text-ink-secondary">{gb.event_date}</td>
                 <td className="py-2.5 pr-3 text-right font-medium text-ink">{gb.total_records}</td>
-                <td className="py-2.5 pr-3 text-right font-bold text-ink">{formatY(gb.total_amount)}</td>
+                <td className="py-2.5 pr-3 text-right font-bold text-ink">{formatFen(gb.total_amount)}</td>
                 <td className="py-2.5 text-right">
                   <div className="flex items-center justify-end gap-2">
                     <div className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-200">

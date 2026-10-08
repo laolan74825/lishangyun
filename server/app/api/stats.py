@@ -62,7 +62,25 @@ async def overview_summary(
     )).scalar_one()
 
     total_in = daily_in + gb_in
-    return OverviewSummary(total_out=daily_out, total_in=total_in, net=total_in - daily_out)
+
+    # 差额调整：与人员排行同口径（计入净差额）；有日期区间时按调整创建时间过滤
+    adj_base = [PersonBalanceAdjustment.owner_id == current_user.id]
+    if start_date:
+        adj_base.append(func.date(PersonBalanceAdjustment.created_at) >= start_date)
+    if end_date:
+        adj_base.append(func.date(PersonBalanceAdjustment.created_at) <= end_date)
+    adjustment_total = (await db.execute(
+        select(func.coalesce(func.sum(PersonBalanceAdjustment.amount), 0)).where(*adj_base)
+    )).scalar_one()
+
+    net = total_in - daily_out
+    return OverviewSummary(
+        total_out=daily_out,
+        total_in=total_in,
+        net=net,
+        adjustment_total=adjustment_total,
+        net_with_adjustment=net + adjustment_total,
+    )
 
 
 @router.get("/person-ranking", response_model=list[PersonRankingItem])
@@ -70,6 +88,7 @@ async def person_ranking(
     current_user: CurrentUser,
     db: DbSession,
     limit: int = Query(20, ge=1, le=100),
+    sort: str = Query("net", pattern="^(out|in|net)$"),
 ):
     daily_out_q = (
         select(
@@ -125,10 +144,27 @@ async def person_ranking(
         .subquery()
     )
 
+    if sort == "out":
+        order_col = func.coalesce(daily_out_q.c.total_out, 0).desc()
+    elif sort == "in":
+        order_col = (
+            func.coalesce(daily_in_q.c.daily_in, 0) + func.coalesce(gb_q.c.gb_total, 0)
+        ).desc()
+    else:
+        order_col = func.abs(
+            func.coalesce(daily_in_q.c.daily_in, 0)
+            + func.coalesce(gb_q.c.gb_total, 0)
+            + func.coalesce(adj_q.c.adj_total, 0)
+            - func.coalesce(daily_out_q.c.total_out, 0)
+        ).desc()
+
     result = await db.execute(
         select(
             Person.id.label("person_id"),
             Person.name.label("person_name"),
+            Person.nickname.label("nickname"),
+            Person.relationship_tag.label("relationship_tag"),
+            Person.note.label("note"),
             func.coalesce(daily_out_q.c.total_out, 0).label("total_out"),
             (func.coalesce(daily_in_q.c.daily_in, 0) + func.coalesce(gb_q.c.gb_total, 0)).label("total_in"),
             func.coalesce(adj_q.c.adj_total, 0).label("adjustment_total"),
@@ -138,14 +174,7 @@ async def person_ranking(
         .outerjoin(gb_q, Person.id == gb_q.c.person_id)
         .outerjoin(adj_q, Person.id == adj_q.c.person_id)
         .where(Person.owner_id == current_user.id, Person.is_deleted == False)
-        .order_by(
-            func.abs(
-                func.coalesce(daily_in_q.c.daily_in, 0)
-                + func.coalesce(gb_q.c.gb_total, 0)
-                + func.coalesce(adj_q.c.adj_total, 0)
-                - func.coalesce(daily_out_q.c.total_out, 0)
-            ).desc()
-        )
+        .order_by(order_col)
         .limit(limit)
     )
 
@@ -153,6 +182,9 @@ async def person_ranking(
         PersonRankingItem(
             person_id=row.person_id,
             person_name=row.person_name,
+            nickname=row.nickname,
+            relationship_tag=row.relationship_tag,
+            note=row.note,
             total_out=row.total_out,
             total_in=row.total_in,
             net=row.total_in - row.total_out + row.adjustment_total,
@@ -320,8 +352,10 @@ async def monthly_trend(
 async def event_distribution(
     current_user: CurrentUser,
     db: DbSession,
+    type: str = Query("in", pattern="^(in|out)$"),
 ):
-    """按事由统计收到的礼金：日常（收）+ 礼簿收礼（按所属礼簿的事由）。"""
+    """按事由统计礼金：type=in（默认）统计收到 = 日常收 + 礼簿收礼（按所属礼簿事由）；
+    type=out 统计送出 = 日常随礼支出（礼簿无送出概念）。"""
     daily_result = await db.execute(
         select(
             DailyRecord.event_type,
@@ -330,25 +364,28 @@ async def event_distribution(
         )
         .where(
             DailyRecord.owner_id == current_user.id,
-            DailyRecord.type == "in",
+            DailyRecord.type == ("in" if type == "in" else "out"),
             DailyRecord.is_deleted == False,
         )
         .group_by(DailyRecord.event_type)
     )
 
-    gb_result = await db.execute(
-        select(
-            Guestbook.event_type,
-            func.coalesce(func.sum(GbRecord.amount), 0).label("total_amount"),
-            func.count(GbRecord.id).label("record_count"),
+    gb_rows = []
+    if type == "in":
+        gb_result = await db.execute(
+            select(
+                Guestbook.event_type,
+                func.coalesce(func.sum(GbRecord.amount), 0).label("total_amount"),
+                func.count(GbRecord.id).label("record_count"),
+            )
+            .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
+            .where(
+                GbRecord.owner_id == current_user.id,
+                GbRecord.is_deleted == False,
+            )
+            .group_by(Guestbook.event_type)
         )
-        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
-        .where(
-            GbRecord.owner_id == current_user.id,
-            GbRecord.is_deleted == False,
-        )
-        .group_by(Guestbook.event_type)
-    )
+        gb_rows = gb_result.all()
 
     merged: dict[str, EventDistributionItem] = {}
     for row in daily_result.all():
@@ -357,7 +394,7 @@ async def event_distribution(
             total_amount=row.total_amount,
             record_count=row.record_count,
         )
-    for row in gb_result.all():
+    for row in gb_rows:
         if row.event_type in merged:
             merged[row.event_type].total_amount += row.total_amount
             merged[row.event_type].record_count += row.record_count

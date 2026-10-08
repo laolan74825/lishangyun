@@ -450,6 +450,9 @@ const toZhTag = (tag?: string | null): RelationTag => {
   return RELATION_EN_TO_ZH[tag] ?? tag
 }
 
+/** 关系标签展示名（人员排行等场景使用） */
+export const relationTagLabel = toZhTag
+
 /** 后端响应（relationship_tag）→ 前端 Person（relation_tag 显示值） */
 const normalizePerson = (p: Person & { relationship_tag?: string }): Person => ({
   ...p,
@@ -722,10 +725,19 @@ export async function getAllGuestbookSummaries() {
   >('/guestbooks/summaries')
 }
 
-export async function getPersonRanking(limit = 10) {
+export async function getPersonRanking(limit = 10, sort: 'out' | 'in' | 'net' = 'net') {
   return api.get<
-    { name: string; total_out: number; total_in: number; net: number; absNet: number }[]
-  >(`/stats/person-ranking?limit=${limit}`)
+    {
+      person_id: number | null
+      person_name: string
+      nickname?: string | null
+      relationship_tag?: string | null
+      note?: string | null
+      total_out: number
+      total_in: number
+      net: number
+    }[]
+  >(`/stats/person-ranking?limit=${limit}&sort=${sort}`)
 }
 
 export async function getDailyRecordsByName(name: string): Promise<DailyRecord[]> {
@@ -778,18 +790,27 @@ export async function createBalanceAdjustment(data: {
 /* ========================= 增强统计 ========================= */
 
 // 首页总览汇总：日常随礼 + 礼簿收礼（礼簿收礼计入收到）
+// 传入空字符串表示不传该参数（空参数 = 全量累计）
 export async function getStatsOverview(startDate: string, endDate: string) {
-  return api.get<{ total_out: number; total_in: number; net: number }>(
-    `/stats/overview?start_date=${startDate}&end_date=${endDate}`,
-  )
+  const params = new URLSearchParams()
+  if (startDate) params.set('start_date', startDate)
+  if (endDate) params.set('end_date', endDate)
+  const qs = params.toString()
+  return api.get<{
+    total_out: number
+    total_in: number
+    net: number
+    adjustment_total: number
+    net_with_adjustment: number
+  }>(`/stats/overview${qs ? `?${qs}` : ''}`)
 }
 
 export async function getMonthlyTrend(months: number = 12): Promise<MonthlyTrendItem[]> {
   return api.get<MonthlyTrendItem[]>(`/stats/monthly-trend?months=${months}`)
 }
 
-export async function getEventDistribution(): Promise<EventDistributionItem[]> {
-  return api.get<EventDistributionItem[]>('/stats/event-distribution')
+export async function getEventDistribution(direction: 'in' | 'out' = 'in'): Promise<EventDistributionItem[]> {
+  return api.get<EventDistributionItem[]>(`/stats/event-distribution?type=${direction}`)
 }
 
 export async function getGuestbookStats(): Promise<GuestbookStatsItem[]> {

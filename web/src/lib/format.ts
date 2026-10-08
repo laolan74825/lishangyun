@@ -1,5 +1,5 @@
 /**
- * 将金额（分）转换为中文大写
+ * 金额（分）转换为中文大写
  * 例如：12345 → 壹佰贰拾叁元肆角伍分
  */
 export function amountToChinese(amountFen: number): string {
@@ -62,4 +62,10 @@ export function amountToChinese(amountFen: number): string {
   }
 
   return result
+}
+
+/** 金额（分）→ 展示字符串，负数显示为 -¥x.xx，例如 12345 → ¥123.45 */
+export function formatFen(fen: number): string {
+  const sign = fen < 0 ? '-' : ''
+  return `${sign}¥${Math.abs(fen / 100).toFixed(2)}`
 }

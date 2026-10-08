@@ -15,6 +15,7 @@ import {
   useCreateBalanceAdjustment,
   useDeletePerson,
 } from '../hooks/useQueries'
+import { eventTypeLabel } from '../lib/eventType'
 
 type TimelineItem = {
   type: 'daily' | 'gb'
@@ -25,22 +26,6 @@ type TimelineItem = {
   source?: string
   record: DailyRecord | GbRecord
 }
-
-/** 历史记录中可能存的是事由英文编码，展示时映射为中文；自由文本原样展示 */
-const EVENT_TYPE_LABELS: Record<string, string> = {
-  wedding: '婚礼',
-  engagement: '订婚',
-  birthday: '周岁宴',
-  fullmoon: '满月酒',
-  birthday_banquet: '生日/寿宴',
-  housewarming: '乔迁',
-  graduation: '升学宴',
-  funeral: '丧葬',
-  holiday: '节日红包',
-  other: '其他',
-}
-
-const eventTypeLabel = (v: string) => EVENT_TYPE_LABELS[v] ?? v
 
 export default function PersonDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string }
@@ -81,7 +66,7 @@ export default function PersonDetailPage() {
     for (const r of gbRecords) {
       // 事由：优先礼簿事由（中文映射），无事由时以礼簿名称作为事由
       const et = r.guestbook_event_type
-      const eventLabel = et ? (EVENT_TYPE_LABELS[et] ?? et) : (r.guestbook_name ?? '礼簿收款')
+      const eventLabel = et ? eventTypeLabel(et) : (r.guestbook_name ?? '礼簿收款')
       items.push({
         type: 'gb',
         date: r.record_time?.slice(0, 10) ?? '',

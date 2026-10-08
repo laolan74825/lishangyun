@@ -14,17 +14,35 @@ interface Props {
 export default function MonthlyTrendChart({ data }: Props) {
   const chartRef = useRef<HTMLDivElement>(null)
 
+  // 初始化/销毁实例与 resize 监听（只执行一次）
   useEffect(() => {
-    if (!chartRef.current || data.length === 0) return
+    if (!chartRef.current) return
     const chart = echarts.init(chartRef.current)
+    const handleResize = () => chart.resize()
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+    }
+  }, [])
+
+  // 数据变化时增量更新（不重建实例）
+  useEffect(() => {
+    const chart = chartRef.current ? echarts.getInstanceByDom(chartRef.current) : null
+    if (!chart || data.length === 0) return
     chart.setOption({
       color: ['#40916C', '#E07B3A'],
       tooltip: {
         trigger: 'axis',
         formatter: (params: unknown) => {
-          const items = params as Array<{ marker: string; seriesName: string; value: number }>
-          const month = items[0]?.seriesName ? '' : ''
-          return items.map((p) => `${p.marker} ${p.seriesName}：¥${(p.value / 100).toFixed(2)}`).join('<br/>') + month
+          const ps = params as Array<{ marker: string; seriesName: string; value: number }> & {
+            axisValue?: string
+          }
+          const header = ps.axisValue ? `${ps.axisValue}<br/>` : ''
+          return (
+            header +
+            ps.map((p) => `${p.marker} ${p.seriesName}：¥${(p.value / 100).toFixed(2)}`).join('<br/>')
+          )
         },
       },
       legend: { data: ['收到', '送出'], bottom: 0 },
@@ -66,13 +84,6 @@ export default function MonthlyTrendChart({ data }: Props) {
         },
       ],
     })
-
-    const handleResize = () => chart.resize()
-    window.addEventListener('resize', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      chart.dispose()
-    }
   }, [data])
 
   if (data.length === 0) {

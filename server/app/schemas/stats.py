@@ -7,6 +7,9 @@ from app.schemas.person import PersonSummaryGbRecord
 class PersonRankingItem(BaseModel):
     person_id: int | None = None
     person_name: str
+    nickname: str | None = None
+    relationship_tag: str | None = None
+    note: str | None = None
     total_out: int
     total_in: int
     net: int
@@ -29,6 +32,8 @@ class OverviewSummary(BaseModel):
     total_out: int
     total_in: int
     net: int
+    adjustment_total: int = 0
+    net_with_adjustment: int = 0
 
 
 class MonthlyTrendItem(BaseModel):

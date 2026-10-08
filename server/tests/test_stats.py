@@ -405,3 +405,105 @@ class TestEventDistribution:
 
         resp = client.get("/api/stats/event-distribution", headers=admin_headers)
         assert resp.json() == []
+
+    async def test_distribution_type_out_only_daily_out(self, client, admin_headers, db_session):
+        """type=out：只统计日常送出，不含日常收与礼簿收礼"""
+        client.post("/api/daily-records/", json={
+            "type": "in",
+            "person_name": "张三",
+            "amount": 20000,
+            "event_type": "wedding",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers)
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_name": "李四",
+            "amount": 50000,
+            "event_type": "funeral",
+            "event_date": "2026-09-21",
+        }, headers=admin_headers)
+
+        resp = client.get("/api/stats/event-distribution?type=out", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["event_type"] == "funeral"
+        assert data[0]["total_amount"] == 50000
+
+
+class TestOverviewAdjustment:
+    """总览净差额含差额调整口径（与人员排行一致）"""
+
+    async def test_net_with_adjustment(self, client, admin_headers, super_admin, db_session):
+        p = Person(owner_id=super_admin.id, name="张三", relationship_tag="friend")
+        db_session.add(p)
+        await db_session.commit()
+        await db_session.refresh(p)
+        client.post("/api/daily-records/", json={
+            "type": "in",
+            "person_name": "张三",
+            "amount": 20000,
+            "event_type": "wedding",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers)
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_name": "王五",
+            "amount": 10000,
+            "event_type": "wedding",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers)
+        client.post("/api/balance-adjustments/", json={
+            "person_id": p.id,
+            "amount": 5000,
+            "reason": "补差额",
+        }, headers=admin_headers)
+
+        resp = client.get("/api/stats/overview", headers=admin_headers)
+        data = resp.json()
+        assert data["net"] == 10000
+        assert data["adjustment_total"] == 5000
+        assert data["net_with_adjustment"] == 15000
+
+    async def test_adjustment_no_adjustments_defaults_zero(self, client, admin_headers, db_session):
+        resp = client.get("/api/stats/overview", headers=admin_headers)
+        data = resp.json()
+        assert data["adjustment_total"] == 0
+        assert data["net_with_adjustment"] == data["net"]
+
+
+class TestPersonRankingSort:
+    """排行支持按送出/收到/净额排序"""
+
+    async def test_sort_by_out_and_in(self, client, admin_headers, super_admin, db_session):
+        p1 = Person(owner_id=super_admin.id, name="甲某", relationship_tag="friend")
+        p2 = Person(owner_id=super_admin.id, name="乙某", relationship_tag="relative")
+        db_session.add_all([p1, p2])
+        await db_session.commit()
+        await db_session.refresh(p1)
+        await db_session.refresh(p2)
+        client.post("/api/daily-records/", json={
+            "type": "out",
+            "person_id": p1.id,
+            "person_name": "甲某",
+            "amount": 10000,
+            "event_type": "wedding",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers)
+        client.post("/api/daily-records/", json={
+            "type": "in",
+            "person_id": p2.id,
+            "person_name": "乙某",
+            "amount": 90000,
+            "event_type": "wedding",
+            "event_date": "2026-09-20",
+        }, headers=admin_headers)
+
+        # 按送出：甲某第一
+        resp = client.get("/api/stats/person-ranking?sort=out", headers=admin_headers)
+        assert resp.json()[0]["person_name"] == "甲某"
+
+        # 按收到：乙某第一
+        resp = client.get("/api/stats/person-ranking?sort=in", headers=admin_headers)
+        assert resp.json()[0]["person_name"] == "乙某"
+

@@ -659,11 +659,11 @@ export function useAccountSummary(guestbookId: number) {
   })
 }
 
-/** 获取人员往来排行（按总金额排序的 Top N） */
-export function usePersonRanking(limit: number = 10) {
+/** 获取人员往来排行（支持按送出/收到/净额排序的 Top N） */
+export function usePersonRanking(limit: number = 10, sort: 'out' | 'in' | 'net' = 'net') {
   return useQuery({
-    queryKey: queryKeys.stats.personRanking(limit),
-    queryFn: () => api.getPersonRanking(limit),
+    queryKey: queryKeys.stats.personRanking(limit, sort),
+    queryFn: () => api.getPersonRanking(limit, sort),
   })
 }
 
@@ -768,11 +768,11 @@ export function useMonthlyTrend(months: number = 12) {
   })
 }
 
-/** 获取事由分布数据（用于饼图/条形图展示：婚礼/生日/满月酒等各占多少） */
-export function useEventDistribution() {
+/** 获取事由分布数据（direction=in 收到含礼簿收礼，out 仅日常送出） */
+export function useEventDistribution(direction: 'in' | 'out' = 'in') {
   return useQuery({
-    queryKey: queryKeys.stats.eventDistribution(),
-    queryFn: () => api.getEventDistribution(),
+    queryKey: queryKeys.stats.eventDistribution(direction),
+    queryFn: () => api.getEventDistribution(direction),
   })
 }
 
