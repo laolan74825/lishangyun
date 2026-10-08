@@ -17,6 +17,14 @@ export interface LockState {
   lastActivity: number
 }
 
+// 最后活跃时间持久化：浏览器重开/标签被回收后仍按真实离开时长判定是否锁屏
+const LAST_ACTIVITY_KEY = 'gr_last_activity'
+
+function loadLastActivity(): number {
+  const saved = Number(localStorage.getItem(LAST_ACTIVITY_KEY))
+  return Number.isFinite(saved) && saved > 0 ? saved : Date.now()
+}
+
 interface AppState {
   clientId: string
   syncStatus: SyncStatus
@@ -136,14 +144,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   lockState: {
     isLocked: false,
     lockTimeout: 30,
-    lastActivity: Date.now(),
+    lastActivity: loadLastActivity(),
   },
   setLocked: (isLocked) =>
     set((state) => ({ lockState: { ...state.lockState, isLocked } })),
   setLockTimeout: (lockTimeout) =>
     set((state) => ({ lockState: { ...state.lockState, lockTimeout } })),
-  updateLastActivity: () =>
-    set((state) => ({ lockState: { ...state.lockState, lastActivity: Date.now() } })),
+  updateLastActivity: () => {
+    const now = Date.now()
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(now))
+    set((state) => ({ lockState: { ...state.lockState, lastActivity: now } }))
+  },
 }))
 
 export async function refreshWechatLimitCache(
