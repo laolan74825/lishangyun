@@ -11,6 +11,15 @@
          这里把启动期错误显示在页面底部红条里，便于诊断 -->
     <script>
       (function () {
+        // 老内核浏览器（旧联想浏览器、旧华为 WebView 等）没有 crypto.randomUUID，
+        // 第三方依赖直接调用会白屏，这里用 getRandomValues 补齐
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
+          crypto.randomUUID = function () {
+            return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, function (c) {
+              return (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> c / 4))).toString(16);
+            });
+          };
+        }
         function showBootError(msg) {
           var el = document.getElementById('__boot-error');
           if (!el) {

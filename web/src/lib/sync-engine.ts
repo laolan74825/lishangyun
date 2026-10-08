@@ -1,5 +1,6 @@
 import { db, getPendingSyncRecords } from '../lib/dexie'
 import { api } from '../lib/api'
+import { uuid } from '../lib/uuid'
 import { useSyncStore } from '../store/syncStore'
 
 interface SyncPullTableRequest {
@@ -46,7 +47,7 @@ export class SyncEngine {
   private isSyncing: boolean = false
 
   constructor() {
-    this.client_id = localStorage.getItem('sync_client_id') || crypto.randomUUID()
+    this.client_id = localStorage.getItem('sync_client_id') || uuid()
     localStorage.setItem('sync_client_id', this.client_id)
   }
 

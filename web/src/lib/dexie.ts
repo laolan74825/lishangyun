@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type { GbRecord, DailyRecord, Person, Guestbook } from '../types'
+import { uuid } from './uuid'
 
 export interface SyncableGbRecord extends GbRecord {
   _syncedAt?: number
@@ -49,17 +50,17 @@ export class GiftRegistryDB extends Dexie {
     }).upgrade(tx => {
       return Promise.all([
         tx.table('gbRecords').toCollection().modify(r => {
-          if (!r.uuid) r.uuid = crypto.randomUUID()
+          if (!r.uuid) r.uuid = uuid()
           r._updatedAt = Date.now()
           r._deleted = false
         }),
         tx.table('dailyRecords').toCollection().modify(r => {
-          if (!r.uuid) r.uuid = crypto.randomUUID()
+          if (!r.uuid) r.uuid = uuid()
           r._updatedAt = Date.now()
           r._deleted = false
         }),
         tx.table('persons').toCollection().modify(r => {
-          if (!r.uuid) r.uuid = crypto.randomUUID()
+          if (!r.uuid) r.uuid = uuid()
           r._updatedAt = Date.now()
           r._deleted = false
         }),

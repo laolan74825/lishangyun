@@ -17,6 +17,7 @@ import type { PaymentMethod, GbRecord } from '../types'
 import { limitLevel } from '../types'
 import { queryKeys } from '../hooks/queryKeys'
 import { amountToChinese, formatFen } from '../lib/format'
+import { uuid } from '../lib/uuid'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useGuestbookWebSocket } from '../hooks/useWebSocket'
 import {
@@ -402,7 +403,7 @@ export default function CollectPage() {
   const addMultiItem = () => {
     setMultiItems((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), guest_name: '', phone: '', amount: '', payment_method: '', account_id: '', note: '' }
+      { id: uuid(), guest_name: '', phone: '', amount: '', payment_method: '', account_id: '', note: '' }
     ])
   }
   const updateMultiItem = (itemId: string, changes: Partial<MultiItem>) => {
@@ -421,7 +422,7 @@ export default function CollectPage() {
   /* 切换到多人录入时自动给出第一行 */
   useEffect(() => {
     if (activeTab === 'multi') {
-      setMultiItems((prev) => (prev.length === 0 ? [{ id: crypto.randomUUID(), guest_name: '', phone: '', amount: '', payment_method: '', account_id: '', note: '' }] : prev))
+      setMultiItems((prev) => (prev.length === 0 ? [{ id: uuid(), guest_name: '', phone: '', amount: '', payment_method: '', account_id: '', note: '' }] : prev))
     }
   }, [activeTab])
 
