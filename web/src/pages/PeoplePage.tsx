@@ -525,6 +525,13 @@ export default function PeoplePage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') setTagDropdownOpen(false)
                 }}
+                onMouseDown={() => {
+                  // 已聚焦时再点输入框本身也能展开（选择选项后焦点仍在输入框，focus 事件不会再触发）
+                  if (!tagDropdownOpen) {
+                    setTagFilter('')
+                    setTagDropdownOpen(true)
+                  }
+                }}
                 placeholder="选择或输入，如：同事、发小"
                 maxLength={20}
                 className="h-11 w-full rounded-btn border border-line px-4 pr-10 text-sm outline-none focus:border-primary"
