@@ -2,6 +2,7 @@ from datetime import date
 
 from sqlalchemy import select
 
+from app.models.guestbook import Guestbook
 from app.models.operation_log import OperationLog
 
 
@@ -56,6 +57,9 @@ class TestGuestbookCRUD:
 
         resp_get = client.get(f"/api/guestbooks/{gb_id}", headers=admin_headers)
         assert resp_get.status_code == 404
+
+        # 空礼簿为物理删除，数据库中不再保留
+        assert await db_session.get(Guestbook, gb_id) is None
 
     async def test_list_with_status_filter(self, client, admin_headers, db_session):
         _create_guestbook(client, admin_headers, name="礼簿1")
@@ -410,6 +414,19 @@ class TestGuestbookDeleteWithRecords:
         resp = client.delete(f"/api/guestbooks/{gb_id}", headers=admin_headers)
         assert resp.status_code == 400
         assert "收礼记录" in resp.json()["detail"]
+
+    async def test_delete_guestbook_all_records_trashed(self, client, admin_headers, db_session):
+        """记录全部单独删除（进记录回收站）后，礼簿可硬删除，已删记录一并清除"""
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        resp = client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "张三", "amount": 50000, "payment_method": "cash",
+        }, headers=admin_headers)
+        record_id = resp.json()
+        client.delete(f"/api/gb-records/{record_id}", headers=admin_headers)
+
+        resp = client.delete(f"/api/guestbooks/{gb_id}", headers=admin_headers)
+        assert resp.status_code == 200
+        assert await db_session.get(Guestbook, gb_id) is None
 
 
 class TestGuestbookSummary:

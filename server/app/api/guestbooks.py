@@ -3,7 +3,7 @@ from app.core.time import utcnow
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.guestbook_access import get_guestbook_access
@@ -12,7 +12,9 @@ from app.models.authorization_action_log import AuthorizationActionLog
 from app.models.collaboration_invite import CollaborationInvite
 from app.models.gb_record import GbRecord
 from app.models.guestbook import Guestbook
+from app.models.guestbook_host import GuestbookHost
 from app.models.person import Person
+from app.models.terminal_settings import TerminalSettings
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.gb_record import GbRecordBatchCreate, GbRecordCreate, GbRecordResponse
@@ -135,6 +137,7 @@ async def delete_guestbook(
     gb = result.scalar_one_or_none()
     if not gb:
         raise HTTPException(status_code=404, detail="礼簿不存在")
+    # 有可见收礼记录的阻断，需先导出备份；空礼簿（含记录已单独删光的）直接物理删除
     record_count = (await db.execute(
         select(func.count(GbRecord.id))
         .where(GbRecord.guestbook_id == guestbook_id, GbRecord.is_deleted == False)
@@ -142,10 +145,14 @@ async def delete_guestbook(
     if record_count > 0:
         raise HTTPException(status_code=400, detail="该礼簿已有收礼记录，请先导出备份后再删除")
     before = {c.name: getattr(gb, c.name) for c in Guestbook.__table__.columns}
-    gb.is_deleted = True
-    gb.deleted_at = utcnow()
-    write_audit_log(db, current_user.id, "guestbooks", gb.id, "DELETE",
-                    operator_name=current_user.username, before=before)
+    # 空礼簿无保留价值，直接删除；连带清理全部收礼记录（含已单独删除的）与关联设置
+    await db.execute(delete(GbRecord).where(GbRecord.guestbook_id == guestbook_id))
+    await db.execute(delete(GuestbookHost).where(GuestbookHost.guestbook_id == guestbook_id))
+    await db.execute(delete(TerminalSettings).where(TerminalSettings.guestbook_id == guestbook_id))
+    write_audit_log(db, current_user.id, "guestbooks", guestbook_id, "DELETE",
+                    operator_name=current_user.username, before=before,
+                    note="空礼簿，直接删除")
+    await db.delete(gb)
     await db.commit()
     return {"message": "已删除"}
 
