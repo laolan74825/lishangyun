@@ -41,49 +41,45 @@ function MobileHeader() {
   )
 }
 
-function MobileLayout() {
+/**
+ * 单壳布局：页面内容（<Outlet />）只渲染一份。
+ * 窄屏（<md）：移动顶栏 + 整页窗口滚动 + 底部标签导航；
+ * 宽屏（≥md）：桌面深色顶栏 + 侧边栏，仅主内容区滚动。
+ * 外壳各部件按断点显隐，但每个部件内部不含 <Outlet />，无重复挂载/重复请求。
+ */
+export default function AppLayout() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <MobileHeader />
-      {/* min-w-0 必需：flex 子项默认 min-width:auto=min-content，子树里任何
-          未约束的宽内容（如 min-w-[860px] 表格）会把整页撑宽；w-full 让宽度
-          确定为视口宽（max-w-6xl 封顶、mx-auto 居中），内部 overflow-x-auto
-          容器才能真正收住横向滚动 */}
-      <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 pb-24 pt-4">
-        <Outlet />
-      </main>
-      <MobileBottomTabs />
-    </div>
-  )
-}
+    <div className="flex min-h-screen flex-col md:h-screen md:overflow-hidden">
+      {/* 顶栏：窄屏移动顶栏 / 宽屏桌面导航 */}
+      <div className="block md:hidden">
+        <MobileHeader />
+      </div>
+      <div className="hidden md:block">
+        <TopNavBar />
+      </div>
 
-function DesktopLayout() {
-  return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <TopNavBar />
       <div className="flex min-h-0 flex-1">
-        <DesktopSidebar />
-        <main className="mx-auto max-w-6xl flex-1 overflow-y-auto p-8">
+        <div className="hidden md:block">
+          <DesktopSidebar />
+        </div>
+        {/* min-w-0 必需：flex 子项默认 min-width:auto=min-content，子树里任何
+            未约束的宽内容（如 min-w-[860px] 表格）会把整页撑宽；w-full 让宽度
+            确定为视口宽（max-w-6xl 封顶、mx-auto 居中），内部 overflow-x-auto
+            容器才能真正收住横向滚动。
+            pb-24 给窄屏底部导航留位；宽屏主区独立滚动（md:overflow-y-auto） */}
+        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 pb-24 pt-4 md:overflow-y-auto md:p-8">
           <Outlet />
         </main>
       </div>
-      <footer className="flex h-8 shrink-0 items-center justify-between border-t border-line bg-card px-6 text-xs text-ink-secondary">
+
+      {/* 底栏：窄屏底部标签 / 宽屏页脚 */}
+      <div className="block md:hidden">
+        <MobileBottomTabs />
+      </div>
+      <footer className="hidden h-8 shrink-0 items-center justify-between border-t border-line bg-card px-6 text-xs text-ink-secondary md:flex">
         <span>礼云随笔 v{APP_VERSION}</span>
         <span>Ctrl+N 记一笔 · Ctrl+F 搜索 · Esc 返回</span>
       </footer>
     </div>
-  )
-}
-
-export default function AppLayout() {
-  return (
-    <>
-      <div className="block md:hidden">
-        <MobileLayout />
-      </div>
-      <div className="hidden md:block">
-        <DesktopLayout />
-      </div>
-    </>
   )
 }
