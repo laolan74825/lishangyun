@@ -20,6 +20,7 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     security_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
     encryption_key_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    lock_pin_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     auto_lock_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

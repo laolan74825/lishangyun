@@ -410,3 +410,80 @@ class TestAdminRoleRules:
             "role": "collaborator",
         }, headers=admin_headers)
         assert resp.status_code == 422
+
+
+class TestLockPin:
+    """锁屏密码：设置/查询/验证/清除全流程"""
+
+    async def test_verify_password_endpoint(self, client, user_headers):
+        resp = client.post("/api/auth/verify-password", json={"password": "password123"}, headers=user_headers)
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is True
+
+        resp = client.post("/api/auth/verify-password", json={"password": "wrong"}, headers=user_headers)
+        assert resp.status_code == 400
+
+    async def test_lock_pin_full_flow(self, client, user_headers):
+        # 初始未设置
+        resp = client.get("/api/auth/lock-pin", headers=user_headers)
+        assert resp.json()["enabled"] is False
+
+        # 设置：需验证登录密码
+        resp = client.post("/api/auth/lock-pin", json={"pin": "1234", "password": "password123"}, headers=user_headers)
+        assert resp.status_code == 200
+
+        resp = client.get("/api/auth/lock-pin", headers=user_headers)
+        assert resp.json()["enabled"] is True
+
+        # 锁屏密码可解锁；错误密码被拒
+        resp = client.post("/api/auth/verify-lock-pin", json={"pin": "1234"}, headers=user_headers)
+        assert resp.status_code == 200
+        resp = client.post("/api/auth/verify-lock-pin", json={"pin": "9999"}, headers=user_headers)
+        assert resp.status_code == 400
+
+        # 清除：需验证登录密码
+        resp = client.request("DELETE", "/api/auth/lock-pin", json={"password": "password123"}, headers=user_headers)
+        assert resp.status_code == 200
+
+        resp = client.get("/api/auth/lock-pin", headers=user_headers)
+        assert resp.json()["enabled"] is False
+
+        # 清除后再验证应失败
+        resp = client.post("/api/auth/verify-lock-pin", json={"pin": "1234"}, headers=user_headers)
+        assert resp.status_code == 400
+
+    async def test_set_lock_pin_wrong_password_rejected(self, client, user_headers):
+        resp = client.post("/api/auth/lock-pin", json={"pin": "1234", "password": "wrong"}, headers=user_headers)
+        assert resp.status_code == 400
+
+        resp = client.get("/api/auth/lock-pin", headers=user_headers)
+        assert resp.json()["enabled"] is False
+
+    async def test_clear_lock_pin_wrong_password_keeps_pin(self, client, user_headers):
+        client.post("/api/auth/lock-pin", json={"pin": "1234", "password": "password123"}, headers=user_headers)
+
+        resp = client.request("DELETE", "/api/auth/lock-pin", json={"password": "wrong"}, headers=user_headers)
+        assert resp.status_code == 400
+
+        resp = client.get("/api/auth/lock-pin", headers=user_headers)
+        assert resp.json()["enabled"] is True
+
+    async def test_lock_pin_must_be_4_digits(self, client, user_headers):
+        for bad in ["123", "12345", "12ab", "abcd"]:
+            resp = client.post("/api/auth/lock-pin", json={"pin": bad, "password": "password123"}, headers=user_headers)
+            assert resp.status_code == 422, bad
+
+    async def test_lock_pin_hash_not_exposed(self, client, user_headers, db_session):
+        from sqlalchemy import select
+
+        from app.models.user import User
+
+        client.post("/api/auth/lock-pin", json={"pin": "1234", "password": "password123"}, headers=user_headers)
+        # 会话身份映射里可能缓存着设置前的旧对象，先过期再查
+        db_session.expire_all()
+        user = (await db_session.execute(
+            select(User).where(User.username == "user1"))).scalar_one()
+        # 数据库存哈希而非明文，且与登录密码哈希不同
+        assert user.lock_pin_hash is not None
+        assert user.lock_pin_hash != "1234"
+        assert user.lock_pin_hash != user.password_hash

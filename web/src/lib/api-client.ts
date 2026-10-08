@@ -1214,6 +1214,33 @@ export async function changePassword(data: {
   await api.put('/auth/password', data)
 }
 
+/* ========================= 锁屏密码 ========================= */
+
+/** 校验当前登录密码（锁屏解锁等场景） */
+export async function verifyPassword(password: string): Promise<void> {
+  await api.post('/auth/verify-password', { password })
+}
+
+/** 锁屏密码是否已设置 */
+export async function getLockPinStatus(): Promise<{ enabled: boolean }> {
+  return api.get('/auth/lock-pin')
+}
+
+/** 设置锁屏密码：需验证登录密码 */
+export async function setLockPin(pin: string, password: string): Promise<void> {
+  await api.post('/auth/lock-pin', { pin, password })
+}
+
+/** 清除锁屏密码：需验证登录密码 */
+export async function clearLockPin(password: string): Promise<void> {
+  await api.delete('/auth/lock-pin', { password })
+}
+
+/** 锁屏解锁：校验 4 位锁屏密码 */
+export async function verifyLockPin(pin: string): Promise<void> {
+  await api.post('/auth/verify-lock-pin', { pin })
+}
+
 /* ========================= 密码重置 ========================= */
 
 export async function requestPasswordReset(email: string): Promise<void> {

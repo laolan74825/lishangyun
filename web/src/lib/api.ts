@@ -79,8 +79,8 @@ export const api = {
   patch<T>(path: string, body?: unknown): Promise<T> {
     return request<T>(path, { method: 'PATCH', body: body != null ? JSON.stringify(body) : undefined })
   },
-  delete<T>(path: string): Promise<T> {
-    return request<T>(path, { method: 'DELETE' })
+  delete<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(path, { method: 'DELETE', body: body != null ? JSON.stringify(body) : undefined })
   },
   async getBlob(path: string): Promise<Blob> {
     const token = getToken()

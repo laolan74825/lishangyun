@@ -64,3 +64,28 @@ class PasswordResetConfirm(BaseModel):
 
 class SendVerificationCodeRequest(BaseModel):
     email: str = Field(..., max_length=100)
+
+
+class VerifyPasswordRequest(BaseModel):
+    """锁屏解锁等场景校验当前登录密码"""
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class LockPinSetRequest(BaseModel):
+    """设置锁屏密码：需先验证登录密码，防止他人趁设备未锁时篡改"""
+    pin: str = Field(..., pattern=r"^\d{4}$", description="4 位数字锁屏密码")
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class LockPinClearRequest(BaseModel):
+    """清除锁屏密码：同样需验证登录密码"""
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class LockPinStatus(BaseModel):
+    """锁屏密码是否已设置（不回传哈希）"""
+    enabled: bool
+
+
+class VerifyLockPinRequest(BaseModel):
+    pin: str = Field(..., pattern=r"^\d{4}$")

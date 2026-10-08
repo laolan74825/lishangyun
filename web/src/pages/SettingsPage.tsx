@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { useAppStore } from '../store/appStore'
 import { getCurrentUser, clearToken, isAdmin } from '../lib/auth'
 import { syncEngine } from '../lib/sync-engine'
+import { APP_VERSION } from '../lib/version'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import ConflictResolutionPanel from '../components/ConflictResolutionPanel'
 import {
@@ -16,6 +17,9 @@ import {
   useAddSecurityEmail,
   useDeleteSecurityEmail,
   useDeleteAccount,
+  useLockPinStatus,
+  useSetLockPin,
+  useClearLockPin,
 } from '../hooks/useQueries'
 import { sendSecurityEmailCode, changePassword } from '../lib/api-client'
 import type { SecurityEmailItem } from '../types'
@@ -67,17 +71,25 @@ export default function SettingsPage() {
   }, [profile])
 
   async function handleSaveProfile() {
+    try {
+      await updateProfile.mutateAsync({
+        nickname: nickname.trim() || undefined,
+      })
+      showToast('资料已保存')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '保存失败')
+    }
+  }
+
+  async function handleSaveLockTime() {
     const minutes = parseInt(autoLockMinutes)
     if (isNaN(minutes) || minutes < 1) {
       showToast('锁定时间无效')
       return
     }
     try {
-      await updateProfile.mutateAsync({
-        nickname: nickname.trim() || undefined,
-        auto_lock_minutes: minutes,
-      })
-      showToast('资料已保存')
+      await updateProfile.mutateAsync({ auto_lock_minutes: minutes })
+      showToast('锁定时间已保存')
     } catch (err) {
       showToast(err instanceof Error ? err.message : '保存失败')
     }
@@ -110,27 +122,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <PageScaffold title="系统设置" description="终端信息、账户安全与系统管理">
+    <PageScaffold title="系统设置" description="个人资料、锁屏与账户安全、数据同步">
       <div className="mx-auto flex max-w-[36rem] flex-col gap-5">
-        {/* 管理后台入口（仅管理员可见） */}
-        {isAdmin() && (
-          <Link
-            to="/admin"
-            className="flex items-center justify-between rounded-card bg-card p-6 shadow-card transition-colors hover:bg-primary/5"
-          >
-            <div>
-              <h2 className="text-section-title">🛠️ 管理后台</h2>
-              <p className="mt-1 text-sm text-ink-secondary">
-                用户管理、系统配置、审计日志、公告与回收站
-              </p>
-            </div>
-            <span className="text-2xl text-primary">→</span>
-          </Link>
-        )}
-
-        {/* 当前用户 */}
+        {/* 个人资料 */}
         <section className="rounded-card bg-card p-6 shadow-card">
-          <h2 className="text-section-title">👤 当前用户</h2>
+          <h2 className="text-section-title">👤 个人资料</h2>
           <p className="mt-1 text-sm text-ink-secondary">
             登录账户信息与本机个人设置。
           </p>
@@ -166,6 +162,23 @@ export default function SettingsPage() {
                 className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
               />
             </label>
+            <button
+              onClick={handleSaveProfile}
+              disabled={updateProfile.isPending}
+              className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
+            >
+              {updateProfile.isPending ? '保存中…' : '保存资料'}
+            </button>
+          </div>
+        </section>
+
+        {/* 锁屏 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">🔒 锁屏</h2>
+          <p className="mt-1 text-sm text-ink-secondary">
+            无操作自动锁定屏幕，解锁需输入密码，保护账目隐私。
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">自动锁定时间（分钟）</span>
               <input
@@ -178,13 +191,28 @@ export default function SettingsPage() {
               <span className="text-xs text-ink-secondary">无操作超过此时间后自动锁定</span>
             </label>
             <button
-              onClick={handleSaveProfile}
+              onClick={handleSaveLockTime}
               disabled={updateProfile.isPending}
               className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
             >
-              {updateProfile.isPending ? '保存中…' : '保存资料'}
+              {updateProfile.isPending ? '保存中…' : '保存锁定时间'}
             </button>
+            <div className="my-1 border-t border-line" />
+            <LockPinSection showToast={showToast} />
           </div>
+        </section>
+
+        {/* 账户安全 */}
+        <section className="rounded-card bg-card p-6 shadow-card">
+          <h2 className="text-section-title">🔐 账户安全</h2>
+          <ChangePasswordSection showToast={showToast} />
+          <div className="my-4 border-t border-line" />
+          <h3 className="text-sm font-bold text-ink">📧 安全邮箱</h3>
+          <p className="mt-1 text-xs text-ink-secondary">用于找回密码和接收安全通知。</p>
+          <SecurityEmailSection
+            emails={securityEmails}
+            showToast={showToast}
+          />
         </section>
 
         {/* 数据同步 */}
@@ -213,50 +241,52 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* 账户安全 */}
+        {/* 更多功能 */}
         <section className="rounded-card bg-card p-6 shadow-card">
-          <h2 className="text-section-title">🔐 账户安全</h2>
-          <ChangePasswordSection showToast={showToast} />
-        </section>
-
-        {/* 安全邮箱 */}
-        <section className="rounded-card bg-card p-6 shadow-card">
-          <h2 className="text-section-title">📧 安全邮箱</h2>
-          <SecurityEmailSection
-            emails={securityEmails}
-            showToast={showToast}
-          />
-        </section>
-
-        {/* 协作与安全 */}
-        <section className="rounded-card bg-card p-6 shadow-card">
-          <h2 className="text-section-title">🔗 协作与安全</h2>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <button
-              onClick={() => navigate({ to: '/family' })}
-              className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:bg-bg"
-            >
-              <span className="text-2xl">👨‍👩‍👧‍👦</span>
-              <div>
-                <p className="text-sm font-medium text-ink">家庭管理</p>
-                <p className="text-xs text-ink-secondary">创建或加入家庭组</p>
-              </div>
-            </button>
-            <button
-              onClick={() => navigate({ to: '/security' })}
-              className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:bg-bg"
-            >
-              <span className="text-2xl">🛡️</span>
-              <div>
-                <p className="text-sm font-medium text-ink">安全模式</p>
-                <p className="text-xs text-ink-secondary">增强数据加密保护</p>
-              </div>
-            </button>
+          <h2 className="text-section-title">🔗 更多功能</h2>
+          <div className="mt-4 flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => navigate({ to: '/family' })}
+                className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:bg-bg"
+              >
+                <span className="text-2xl">👨‍👩‍👧‍👦</span>
+                <div>
+                  <p className="text-sm font-medium text-ink">家庭管理</p>
+                  <p className="text-xs text-ink-secondary">创建或加入家庭组</p>
+                </div>
+              </button>
+              <button
+                onClick={() => navigate({ to: '/security' })}
+                className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:bg-bg"
+              >
+                <span className="text-2xl">🛡️</span>
+                <div>
+                  <p className="text-sm font-medium text-ink">安全模式</p>
+                  <p className="text-xs text-ink-secondary">增强数据加密保护</p>
+                </div>
+              </button>
+            </div>
+            {isAdmin() && (
+              <Link
+                to="/admin"
+                className="flex items-center justify-between rounded-lg border border-line p-4 transition-colors hover:bg-bg"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🛠️</span>
+                  <div>
+                    <p className="text-sm font-medium text-ink">管理后台</p>
+                    <p className="text-xs text-ink-secondary">用户管理、系统配置、审计日志、公告与回收站</p>
+                  </div>
+                </div>
+                <span className="text-xl text-primary">→</span>
+              </Link>
+            )}
           </div>
         </section>
 
         {/* 注销账户 */}
-        <section className="rounded-card bg-card p-6 shadow-card">
+        <section className="rounded-card border border-danger/30 bg-card p-6 shadow-card">
           <h2 className="text-section-title">⚠️ 注销账户</h2>
           <p className="mt-1 text-sm text-ink-secondary">
             注销后账户将无法恢复，所有数据将被永久删除。
@@ -273,7 +303,7 @@ export default function SettingsPage() {
         <section className="rounded-card bg-card p-6 shadow-card">
           <h2 className="text-section-title">ℹ️ 关于</h2>
           <div className="mt-3 flex flex-col gap-2 text-sm text-ink-secondary">
-            <p><span className="font-medium text-ink">礼云随笔</span> · 人情往来小账本 v1.0.0</p>
+            <p><span className="font-medium text-ink">礼云随笔</span> · 人情往来小账本 v{APP_VERSION}</p>
             <p>数据存储：服务端 PostgreSQL（支持多终端协作）</p>
             <p>技术栈：React + FastAPI + PostgreSQL</p>
           </div>
@@ -306,6 +336,156 @@ export default function SettingsPage() {
 
       <Toast message={toast} onClose={() => showToast(null)} />
     </PageScaffold>
+  )
+}
+
+/** 锁屏密码：4 位数字，可随时设置/修改/清除；设置与清除都需验证登录密码 */
+function LockPinSection({ showToast }: { showToast: (msg: string) => void }) {
+  const { data: lockPin } = useLockPinStatus()
+  const setLockPin = useSetLockPin()
+  const clearLockPin = useClearLockPin()
+
+  const [mode, setMode] = useState<'idle' | 'set' | 'clear'>('idle')
+  const [pin, setPin] = useState('')
+  const [pinConfirm, setPinConfirm] = useState('')
+  const [password, setPassword] = useState('')
+  const [pinError, setPinError] = useState('')
+
+  const enabled = lockPin?.enabled === true
+
+  function resetForm() {
+    setMode('idle')
+    setPin('')
+    setPinConfirm('')
+    setPassword('')
+    setPinError('')
+  }
+
+  async function handleSet() {
+    if (!/^\d{4}$/.test(pin)) {
+      setPinError('请输入 4 位数字密码')
+      return
+    }
+    if (pin !== pinConfirm) {
+      setPinError('两次输入不一致')
+      return
+    }
+    if (!password) {
+      setPinError('请输入登录密码确认')
+      return
+    }
+    try {
+      await setLockPin.mutateAsync({ pin, password })
+      showToast('锁屏密码已设置')
+      resetForm()
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : '设置失败')
+    }
+  }
+
+  async function handleClear() {
+    if (!password) {
+      setPinError('请输入登录密码确认')
+      return
+    }
+    try {
+      await clearLockPin.mutateAsync(password)
+      showToast('锁屏密码已清除')
+      resetForm()
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : '清除失败')
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-ink">锁屏密码</p>
+          <p className="text-xs text-ink-secondary">4 位数字，锁屏后输入它或登录密码均可解锁</p>
+        </div>
+        <span className={`rounded px-2 py-0.5 text-xs ${enabled ? 'bg-primary/10 text-primary' : 'bg-black/5 text-ink-secondary'}`}>
+          {enabled ? '已设置' : '未设置'}
+        </span>
+      </div>
+
+      {mode === 'idle' ? (
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setMode('set'); setPinError('') }}
+            className="rounded-btn bg-primary/10 px-4 py-2 text-sm text-primary hover:bg-primary/20"
+          >
+            {enabled ? '修改锁屏密码' : '设置锁屏密码'}
+          </button>
+          {enabled && (
+            <button
+              onClick={() => { setMode('clear'); setPinError('') }}
+              className="rounded-btn border border-danger/40 px-4 py-2 text-sm text-danger hover:bg-danger/10"
+            >
+              清除
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 rounded-lg bg-bg p-3">
+          {mode === 'set' && (
+            <>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={pin}
+                onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError('') }}
+                placeholder="输入 4 位数字密码"
+                aria-label="锁屏密码"
+                autoComplete="off"
+                className="h-11 rounded-btn border border-line px-4 text-base tracking-[0.5em] outline-none focus:border-primary"
+              />
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={pinConfirm}
+                onChange={(e) => { setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError('') }}
+                placeholder="再次输入确认"
+                aria-label="确认锁屏密码"
+                autoComplete="off"
+                className="h-11 rounded-btn border border-line px-4 text-base tracking-[0.5em] outline-none focus:border-primary"
+              />
+            </>
+          )}
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setPinError('') }}
+            placeholder="输入登录密码确认身份"
+            aria-label="登录密码"
+            autoComplete="current-password"
+            className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+          />
+          {pinError && <p className="text-xs text-danger" role="alert">{pinError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={resetForm}
+              className="flex-1 rounded-btn border border-line py-2 text-sm text-ink-secondary"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={mode === 'set' ? handleSet : handleClear}
+              disabled={setLockPin.isPending || clearLockPin.isPending}
+              className={`flex-1 rounded-btn py-2 text-sm font-semibold text-white disabled:opacity-50 ${mode === 'set' ? 'bg-primary' : 'bg-danger'}`}
+            >
+              {setLockPin.isPending || clearLockPin.isPending
+                ? '处理中…'
+                : mode === 'set' ? '确认设置' : '确认清除'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

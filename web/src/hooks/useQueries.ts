@@ -884,6 +884,37 @@ export function useDeleteAccount() {
   })
 }
 
+/** 锁屏密码是否已设置（设置页与锁屏组件共用） */
+export function useLockPinStatus() {
+  return useQuery({
+    queryKey: queryKeys.account.lockPin(),
+    queryFn: () => api.getLockPinStatus(),
+  })
+}
+
+/** 设置锁屏密码（需验证登录密码），成功后刷新状态 */
+export function useSetLockPin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ pin, password }: { pin: string; password: string }) =>
+      api.setLockPin(pin, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.account.lockPin() })
+    },
+  })
+}
+
+/** 清除锁屏密码（需验证登录密码），成功后刷新状态 */
+export function useClearLockPin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (password: string) => api.clearLockPin(password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.account.lockPin() })
+    },
+  })
+}
+
 // 重新导出账户相关类型，供页面组件使用
 export type { ProfileResponse, SecurityEmailItem }
 

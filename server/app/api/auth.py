@@ -21,6 +21,9 @@ from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    LockPinClearRequest,
+    LockPinSetRequest,
+    LockPinStatus,
     LoginRequest,
     PasswordResetConfirm,
     PasswordResetEmailHintRequest,
@@ -29,6 +32,8 @@ from app.schemas.auth import (
     SendVerificationCodeRequest,
     TokenResponse,
     UserInfo,
+    VerifyLockPinRequest,
+    VerifyPasswordRequest,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -376,3 +381,57 @@ async def confirm_reset(
     reset_code.used = True
     await db.commit()
     return {"message": "密码已重置"}
+
+
+# 锁屏解锁：校验当前登录密码（锁屏组件在用的入口，失败统一 400 由前端提示）
+@router.post("/verify-password")
+async def verify_password_endpoint(
+    body: VerifyPasswordRequest,
+    current_user: CurrentUser,
+):
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="密码错误")
+    return {"valid": True}
+
+
+@router.get("/lock-pin", response_model=LockPinStatus)
+async def get_lock_pin_status(current_user: CurrentUser):
+    return LockPinStatus(enabled=current_user.lock_pin_hash is not None)
+
+
+@router.post("/lock-pin")
+async def set_lock_pin(
+    body: LockPinSetRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="登录密码错误")
+    current_user.lock_pin_hash = hash_password(body.pin)
+    current_user.updated_at = utcnow()
+    await db.commit()
+    return {"message": "锁屏密码已设置"}
+
+
+@router.delete("/lock-pin")
+async def clear_lock_pin(
+    body: LockPinClearRequest,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="登录密码错误")
+    current_user.lock_pin_hash = None
+    current_user.updated_at = utcnow()
+    await db.commit()
+    return {"message": "锁屏密码已清除"}
+
+
+@router.post("/verify-lock-pin")
+async def verify_lock_pin(
+    body: VerifyLockPinRequest,
+    current_user: CurrentUser,
+):
+    if not current_user.lock_pin_hash or not verify_password(body.pin, current_user.lock_pin_hash):
+        raise HTTPException(status_code=400, detail="锁屏密码错误")
+    return {"valid": True}

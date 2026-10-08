@@ -77,6 +77,7 @@ export const queryKeys = {
     all: ['account'] as const,
     profile: () => [...queryKeys.account.all, 'profile'] as const,
     securityEmails: () => [...queryKeys.account.all, 'securityEmails'] as const,
+    lockPin: () => [...queryKeys.account.all, 'lockPin'] as const,
   },
   collaboration: {
     all: ['collaboration'] as const,
