@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLockScreen } from '../hooks/useLockScreen'
-import { getCurrentUser } from '../lib/auth'
+import { getCurrentUser, isAuthenticated } from '../lib/auth'
 import { verifyPassword, verifyLockPin } from '../lib/api-client'
 import { useLockPinStatus, useProfile } from '../hooks/useQueries'
 import { useAppStore } from '../store/appStore'
@@ -9,8 +9,11 @@ type UnlockMethod = 'password' | 'pin'
 
 export default function LockScreen() {
   const { isLocked } = useLockScreen()
-  const { data: lockPin } = useLockPinStatus()
-  const { data: profile } = useProfile()
+  // 未登录时不发起查询：这两个接口 401 会触发跳登录页，登录页上反复
+  // 整页刷新（401 → 跳 /login → 再 401 的死循环）
+  const authed = isAuthenticated()
+  const { data: lockPin } = useLockPinStatus({ enabled: authed })
+  const { data: profile } = useProfile({ enabled: authed })
   const setLockTimeout = useAppStore((s) => s.setLockTimeout)
   const pinEnabled = lockPin?.enabled === true
 

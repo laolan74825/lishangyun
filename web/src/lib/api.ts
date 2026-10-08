@@ -48,7 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* ignore */ }
     if (!path.includes('/auth/login')) {
       clearToken()
-      window.location.href = '/login'
+      redirectToLogin()
     }
     throw new ApiError(401, detail)
   }
@@ -64,6 +64,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (res.status === 204) return undefined as T
   return res.json()
+}
+
+// 无需登录即可访问的公开页：已在这些页面时 401 不再跳转，否则会造成
+// 整页反复刷新（登录页挂载的公共组件请求 401 → 跳登录 → 再 401 的死循环）
+const PUBLIC_PAGES = ['/login', '/password-reset']
+
+function redirectToLogin() {
+  if (!PUBLIC_PAGES.includes(window.location.pathname)) {
+    window.location.href = '/login'
+  }
 }
 
 export const api = {
@@ -99,7 +109,7 @@ export const api = {
     }
     if (res.status === 401) {
       clearToken()
-      window.location.href = '/login'
+      redirectToLogin()
       throw new ApiError(401, '未授权')
     }
     if (!res.ok) {

@@ -828,10 +828,11 @@ export type { AdminUser, SystemSettings, OperationLog }
  */
 
 /** 获取当前用户的个人资料（昵称、自动锁定时间等） */
-export function useProfile() {
+export function useProfile(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.account.profile(),
     queryFn: () => api.getProfile(),
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -886,10 +887,11 @@ export function useDeleteAccount() {
 }
 
 /** 锁屏密码是否已设置（设置页与锁屏组件共用） */
-export function useLockPinStatus() {
+export function useLockPinStatus(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.account.lockPin(),
     queryFn: () => api.getLockPinStatus(),
+    enabled: options?.enabled ?? true,
   })
 }
 
