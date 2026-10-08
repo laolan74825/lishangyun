@@ -3,7 +3,7 @@ from app.core.time import utcnow
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.core.dependencies import CurrentUser, DbSession, require_role
 from app.core.guestbook_access import get_guestbook_access
@@ -54,23 +54,19 @@ async def list_summaries(current_user: CurrentUser, db: DbSession):
     guestbooks = result.scalars().all()
     summaries = []
     for g in guestbooks:
-        total_records = (await db.execute(
-            select(func.count(GbRecord.id))
-            .where(GbRecord.guestbook_id == g.id, GbRecord.is_deleted == False)
-        )).scalar_one()
-        total_amount = (await db.execute(
-            select(func.coalesce(func.sum(GbRecord.amount), 0))
-            .where(GbRecord.guestbook_id == g.id, GbRecord.is_deleted == False)
-        )).scalar_one()
-        checked_count = (await db.execute(
-            select(func.count(GbRecord.id))
-            .where(GbRecord.guestbook_id == g.id, GbRecord.check_status == "checked",
-                   GbRecord.is_deleted == False)
-        )).scalar_one()
+        total_records, total_amount, checked_count, checked_amount = (await db.execute(
+            select(
+                func.count(GbRecord.id),
+                func.coalesce(func.sum(GbRecord.amount), 0),
+                func.coalesce(func.sum(case((GbRecord.check_status == "checked", 1), else_=0)), 0),
+                func.coalesce(func.sum(case((GbRecord.check_status == "checked", GbRecord.amount), else_=0)), 0),
+            ).where(GbRecord.guestbook_id == g.id, GbRecord.is_deleted == False)
+        )).one()
         summaries.append(GuestbookSummary(
             id=g.id, name=g.name, event_type=g.event_type, event_date=g.event_date,
             status=g.status, total_records=total_records, total_amount=total_amount,
             checked_count=checked_count, unchecked_count=total_records - checked_count,
+            checked_amount=checked_amount, unchecked_amount=total_amount - checked_amount,
             person_merged_at=g.person_merged_at,
         ))
     return summaries

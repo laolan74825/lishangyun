@@ -431,6 +431,31 @@ class TestGuestbookSummary:
         data = resp.json()
         assert len(data) == 2
 
+    async def test_summaries_checked_amount(self, client, admin_headers, db_session):
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        resp = client.post(f"/api/guestbooks/{gb_id}/records/batch", json={
+            "records": [
+                {"guest_name": "张三", "amount": 50000, "payment_method": "cash"},
+                {"guest_name": "李四", "amount": 30000, "payment_method": "wechat"},
+            ],
+        }, headers=admin_headers)
+        assert resp.status_code == 200
+        record_ids = resp.json()
+
+        resp = client.patch(f"/api/gb-records/{record_ids[0]}/check?checked=true",
+                            headers=admin_headers)
+        assert resp.status_code == 200
+
+        resp = client.get("/api/guestbooks/summaries", headers=admin_headers)
+        assert resp.status_code == 200
+        summary = next(s for s in resp.json() if s["id"] == gb_id)
+        assert summary["total_records"] == 2
+        assert summary["total_amount"] == 80000
+        assert summary["checked_count"] == 1
+        assert summary["unchecked_count"] == 1
+        assert summary["checked_amount"] == 50000
+        assert summary["unchecked_amount"] == 30000
+
 
 class TestGuestbookAuditLog:
     async def test_create_writes_audit_log(self, client, admin_headers, db_session):

@@ -63,4 +63,6 @@ class GuestbookSummary(BaseModel):
     total_amount: int = 0
     checked_count: int = 0
     unchecked_count: int = 0
+    checked_amount: int = 0
+    unchecked_amount: int = 0
     person_merged_at: datetime | None = None

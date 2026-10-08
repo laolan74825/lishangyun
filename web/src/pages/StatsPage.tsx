@@ -233,10 +233,9 @@ export default function StatsPage() {
                     />
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-sm">
-                    <span className="text-ink-secondary">金额对账：</span>
+                    <span className="text-ink-secondary">已对账金额：</span>
                     <span className="font-bold text-success">{formatFen(totalCheckedAmount)}</span>
-                    <span className="text-ink-secondary">/</span>
-                    <span className="text-ink">{formatFen(totalAmount)}</span>
+                    <span className="text-ink-secondary">/ 共 {formatFen(totalAmount)}</span>
                   </div>
                 </div>
               )
