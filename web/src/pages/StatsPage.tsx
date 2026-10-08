@@ -286,7 +286,7 @@ export default function StatsPage() {
                       navigate({ to: '/people/$id', params: { id: String(r.person_id) } })
                     }
                   }}
-                  className={`flex items-center justify-between rounded-btn bg-bg px-4 py-2.5 text-sm ${
+                  className={`flex flex-wrap items-center justify-between rounded-btn bg-bg px-4 py-2.5 text-sm ${
                     r.person_id != null ? 'cursor-pointer transition-colors hover:bg-gray-100' : ''
                   }`}
                 >
@@ -315,7 +315,7 @@ export default function StatsPage() {
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 text-xs">
+                  <div className="mt-1.5 flex w-full items-center justify-end gap-4 text-xs sm:mt-0 sm:w-auto">
                     <span className="text-danger">送 {formatFen(r.total_out)}</span>
                     <span className="text-success">收 {formatFen(r.total_in)}</span>
                     <span className={`font-bold ${netColor(r.net)}`}>净 {formatFen(r.net)}</span>
