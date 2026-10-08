@@ -12,7 +12,6 @@ from app.models.person_balance_adjustment import PersonBalanceAdjustment
 from app.schemas.person import PersonSummaryGbRecord
 from app.schemas.stats import (
     EventDistributionItem,
-    GuestbookStatsItem,
     MonthlyTrendItem,
     OverviewSummary,
     PersonRankingItem,
@@ -405,52 +404,3 @@ async def event_distribution(
                 record_count=row.record_count,
             )
     return sorted(merged.values(), key=lambda x: x.total_amount, reverse=True)
-
-
-@router.get("/guestbook-summary", response_model=list[GuestbookStatsItem])
-async def guestbook_summary_stats(
-    current_user: CurrentUser,
-    db: DbSession,
-):
-    stats_q = (
-        select(
-            GbRecord.guestbook_id,
-            func.count(GbRecord.id).label("total_records"),
-            func.coalesce(func.sum(GbRecord.amount), 0).label("total_amount"),
-            func.count(GbRecord.id).filter(GbRecord.check_status == "checked").label("checked_count"),
-        )
-        .where(
-            GbRecord.owner_id == current_user.id,
-            GbRecord.is_deleted == False,
-        )
-        .group_by(GbRecord.guestbook_id)
-        .subquery()
-    )
-
-    result = await db.execute(
-        select(
-            Guestbook.id,
-            Guestbook.name,
-            Guestbook.event_type,
-            func.to_char(Guestbook.event_date, "YYYY-MM-DD"),
-            func.coalesce(stats_q.c.total_records, 0),
-            func.coalesce(stats_q.c.total_amount, 0),
-            func.coalesce(stats_q.c.checked_count, 0),
-        )
-        .outerjoin(stats_q, Guestbook.id == stats_q.c.guestbook_id)
-        .where(Guestbook.owner_id == current_user.id, Guestbook.is_deleted == False)
-        .order_by(Guestbook.event_date.desc())
-    )
-
-    return [
-        GuestbookStatsItem(
-            guestbook_id=row[0],
-            guestbook_name=row[1],
-            event_type=row[2],
-            event_date=row[3],
-            total_records=row[4],
-            total_amount=row[5],
-            checked_count=row[6],
-        )
-        for row in result.all()
-    ]

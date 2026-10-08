@@ -37,7 +37,7 @@ from app.schemas.person_balance_adjustment import PersonBalanceAdjustmentCreate,
 from app.schemas.user_key_config import UserKeyConfigResponse, SecurityConfigResponse, EnhancedModeEnableRequest, MnemonicVerifyRequest
 from app.schemas.stats import (
     PersonRankingItem, TransactionSummaryByName,
-    MonthlyTrendItem, EventDistributionItem, GuestbookStatsItem,
+    MonthlyTrendItem, EventDistributionItem,
 )
 from app.schemas.migration import MigrationPayload, MigrationResult
 from app.schemas.account import (
@@ -69,7 +69,7 @@ __all__ = [
     "PersonBalanceAdjustmentCreate", "PersonBalanceAdjustmentResponse",
     "UserKeyConfigResponse", "SecurityConfigResponse", "EnhancedModeEnableRequest", "MnemonicVerifyRequest",
     "PersonRankingItem", "TransactionSummaryByName",
-    "MonthlyTrendItem", "EventDistributionItem", "GuestbookStatsItem",
+    "MonthlyTrendItem", "EventDistributionItem",
     "MigrationPayload", "MigrationResult",
     "ProfileResponse", "ProfileUpdate", "SecurityEmailItem", "SecurityEmailAdd", "AccountDeleteRequest",
 ]

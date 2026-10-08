@@ -46,13 +46,3 @@ class EventDistributionItem(BaseModel):
     event_type: str
     total_amount: int
     record_count: int
-
-
-class GuestbookStatsItem(BaseModel):
-    guestbook_id: int
-    guestbook_name: str
-    event_type: str
-    event_date: str
-    total_records: int
-    total_amount: int
-    checked_count: int

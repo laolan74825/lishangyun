@@ -376,28 +376,3 @@ async def confirm_reset(
     reset_code.used = True
     await db.commit()
     return {"message": "密码已重置"}
-
-
-@router.get("/users/search")
-async def search_users(
-    current_user: CurrentUser,
-    db: DbSession,
-    q: str = "",
-):
-    if len(q) < 2:
-        return []
-    pattern = f"%{q}%"
-    stmt = (
-        select(User.id, User.username, User.nickname)
-        .where(
-            User.id != current_user.id,
-            User.is_deleted == False,
-            User.status == "active",
-        )
-        .where(
-            (User.username.ilike(pattern)) | (User.nickname.ilike(pattern))
-        )
-        .limit(10)
-    )
-    result = await db.execute(stmt)
-    return [{"id": r.id, "username": r.username, "nickname": r.nickname} for r in result]
