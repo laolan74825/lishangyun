@@ -1,7 +1,7 @@
 {
   "name": "gift-registry-web",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "礼云随笔 — 礼金往来管理工具（React 19 + Vite + PWA）",
   "scripts": {
