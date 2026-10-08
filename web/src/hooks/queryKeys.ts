@@ -91,5 +91,7 @@ export const queryKeys = {
     all: ['notifications'] as const,
     // 移动顶栏与桌面顶栏各有一个铃铛实例，共享同一 key，全应用只发一次请求
     unreadCount: () => [...queryKeys.notifications.all, 'unreadCount'] as const,
+    // 铃铛面板最近通知列表（打开面板时才查询）
+    recent: () => [...queryKeys.notifications.all, 'recent'] as const,
   },
 }

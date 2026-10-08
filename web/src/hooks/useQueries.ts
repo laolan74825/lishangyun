@@ -1027,3 +1027,17 @@ export function useUnreadNotificationCount() {
     refetchInterval: 60_000,
   })
 }
+
+/**
+ * 铃铛面板最近通知列表：面板打开时才查询（enabled 控制），
+ * 30s 内重复打开直接吃缓存；标记已读/全部已读经 setQueryData 同步
+ */
+export function useRecentNotifications(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.notifications.recent(),
+    queryFn: () => api.listNotifications({ page_size: 8 }),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  })
+}

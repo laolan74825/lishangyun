@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { useUnreadNotificationCount } from '../../hooks/useQueries'
+import { useUnreadNotificationCount, useRecentNotifications } from '../../hooks/useQueries'
 import { queryKeys } from '../../hooks/queryKeys'
 import {
-  listNotifications,
   markNotificationRead,
   markAllNotificationsRead,
 } from '../../lib/api-client'
@@ -23,13 +22,13 @@ export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // 与顶栏另一个铃铛实例共享缓存，全应用只发一次未读数请求
   const { data: unreadData, refetch: refreshUnread } = useUnreadNotificationCount()
   const unreadCount = unreadData?.unread_count ?? 0
+  // 面板列表：打开时查询（30s 内重复打开吃缓存，后台自动刷新）
+  const { data: notifications = [], isFetching: loading } = useRecentNotifications(open)
   /** 本地同步未读数（标记已读/全部已读后写回共享缓存，两个铃铛实例同步更新） */
   function setUnreadCount(update: number | ((count: number) => number)) {
     queryClient.setQueryData<{ unread_count: number }>(
@@ -38,6 +37,12 @@ export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark
         const current = old?.unread_count ?? 0
         return { unread_count: typeof update === 'function' ? update(current) : update }
       },
+    )
+  }
+  /** 本地同步面板列表（标记已读/全部已读后写回缓存） */
+  function setRecentList(mapFn: (list: Notification[]) => Notification[]) {
+    queryClient.setQueryData<Notification[]>(queryKeys.notifications.recent(), (old) =>
+      mapFn(old ?? []),
     )
   }
 
@@ -51,18 +56,8 @@ export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [open])
 
-  async function handleToggle() {
-    if (!open) {
-      setLoading(true)
-      try {
-        const [data] = await Promise.all([
-          listNotifications({ page_size: 8 }),
-          refreshUnread(),
-        ])
-        setNotifications(data)
-      } catch { /* ignore */ }
-      finally { setLoading(false) }
-    }
+  function handleToggle() {
+    if (!open) refreshUnread()
     setOpen((v) => !v)
   }
 
@@ -70,7 +65,7 @@ export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark
     if (n.is_read) return
     try {
       await markNotificationRead(n.id!)
-      setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x))
+      setRecentList((prev) => prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x))
       setUnreadCount((c) => Math.max(0, c - 1))
     } catch { /* ignore */ }
   }
@@ -78,7 +73,7 @@ export default function NotificationBell({ variant = 'dark' }: { variant?: 'dark
   async function handleMarkAllRead() {
     try {
       await markAllNotificationsRead()
-      setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })))
+      setRecentList((prev) => prev.map((x) => ({ ...x, is_read: true })))
       setUnreadCount(0)
     } catch { /* ignore */ }
   }
