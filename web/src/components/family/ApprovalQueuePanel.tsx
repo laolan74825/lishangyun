@@ -90,7 +90,7 @@ export default function ApprovalQueuePanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-2 overflow-x-auto">
+      <div className="flex min-w-0 gap-2 overflow-x-auto">
         {filters.map((f) => (
           <button
             key={f.key}

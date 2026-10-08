@@ -119,7 +119,7 @@ function GroupSwitcher({
   onSelect: (g: FamilyGroup) => void
 }) {
   return (
-    <div className="flex gap-2 overflow-x-auto">
+    <div className="flex min-w-0 gap-2 overflow-x-auto">
       {groups.map((g) => (
         <button
           key={g.id}
