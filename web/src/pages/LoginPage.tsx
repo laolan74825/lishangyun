@@ -62,6 +62,16 @@ export default function LoginPage() {
     }
   }, [])
 
+  // 协议弹窗打开时支持 Esc 关闭
+  useEffect(() => {
+    if (!showTerms) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowTerms(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [showTerms])
+
   const startCountdown = useCallback((setter: React.Dispatch<React.SetStateAction<number>>, timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
     setter(60)
     timerRef.current = setInterval(() => {
@@ -172,6 +182,7 @@ export default function LoginPage() {
               }}
               required
               autoFocus
+              autoComplete="username"
               className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'username' ? 'border-danger' : 'border-line'}`}
               placeholder="请输入用户名"
             />
@@ -190,6 +201,7 @@ export default function LoginPage() {
                 setError('')
               }}
               required
+              autoComplete={isRegister ? 'new-password' : 'current-password'}
               className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'password' ? 'border-danger' : 'border-line'}`}
               placeholder="请输入密码"
             />
@@ -209,6 +221,7 @@ export default function LoginPage() {
                   setError('')
                 }}
                 required
+                autoComplete="new-password"
                 className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'confirm' ? 'border-danger' : 'border-line'}`}
                 placeholder="请再次输入密码"
               />
@@ -227,6 +240,7 @@ export default function LoginPage() {
                 value={securityEmail1}
                 onChange={setSecurityEmail1}
                 required
+                autoComplete="email"
                 placeholder="用于找回密码的主邮箱"
               />
               <div className="mt-2 flex gap-2">
@@ -234,11 +248,14 @@ export default function LoginPage() {
                   type="text"
                   value={securityEmail1Code}
                   onChange={(e) => {
-                    setSecurityEmail1Code(e.target.value)
+                    setSecurityEmail1Code(e.target.value.replace(/\D/g, '').slice(0, 6))
                     setError('')
                   }}
                   required
                   maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  aria-label="主安全邮箱验证码"
                   className={`flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code1' ? 'border-danger' : 'border-line'}`}
                   placeholder="验证码"
                 />
@@ -263,6 +280,7 @@ export default function LoginPage() {
               <EmailSuggestInput
                 value={securityEmail2}
                 onChange={setSecurityEmail2}
+                autoComplete="email"
                 placeholder="可选，最多2个安全邮箱"
               />
               {securityEmail2 && (
@@ -271,11 +289,14 @@ export default function LoginPage() {
                     type="text"
                     value={securityEmail2Code}
                     onChange={(e) => {
-                      setSecurityEmail2Code(e.target.value)
+                      setSecurityEmail2Code(e.target.value.replace(/\D/g, '').slice(0, 6))
                       setError('')
                     }}
                     required
                     maxLength={6}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    aria-label="备用安全邮箱验证码"
                     className={`flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code2' ? 'border-danger' : 'border-line'}`}
                     placeholder="验证码"
                   />
@@ -361,16 +382,26 @@ export default function LoginPage() {
       </div>
 
       {showTerms && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowTerms(false)}>
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-card bg-card p-6 shadow-card" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowTerms(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="用户协议"
+            className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-card bg-card p-6 shadow-card"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-bold text-ink">用户协议</h2>
               <button
                 type="button"
                 onClick={() => setShowTerms(false)}
-                className="text-ink-secondary hover:text-ink"
+                aria-label="关闭用户协议"
+                className="rounded-lg px-2 py-1 text-lg text-ink-secondary transition-colors hover:bg-bg hover:text-ink"
               >
-                
+                ✕
               </button>
             </div>
             <div className="space-y-4 text-sm leading-relaxed text-ink-secondary">

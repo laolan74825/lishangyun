@@ -56,6 +56,7 @@ interface EmailSuggestInputProps {
   placeholder?: string
   autoFocus?: boolean
   required?: boolean
+  autoComplete?: string
   className?: string
 }
 
@@ -66,6 +67,7 @@ export default function EmailSuggestInput({
   placeholder,
   autoFocus,
   required,
+  autoComplete,
   className = 'w-full rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary',
 }: EmailSuggestInputProps) {
   const [open, setOpen] = useState(false)
@@ -114,6 +116,7 @@ export default function EmailSuggestInput({
         placeholder={placeholder}
         autoFocus={autoFocus}
         required={required}
+        autoComplete={autoComplete}
         className={className}
       />
       {open && suggestions.length > 0 && (
