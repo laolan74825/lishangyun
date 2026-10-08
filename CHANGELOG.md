@@ -1,8 +1,10 @@
 # CHANGELOG
 
-本项目的所有重要变更记录。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，按日期发布（未打版本号期间以日期为条目）。
+本项目的所有重要变更记录。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## 2026-10-08
+**版本号唯一出处**：`web/package.json` 的 `version` 字段（应用页脚从该处读取）。版本策略（1.0 前）：功能批次/发布日递增 minor（0.2.0 → 0.3.0），线上热修复递增 patch（0.2.0 → 0.2.1）；每次发版同步在本文件新增带版本号的条目。
+
+## [0.2.0] - 2026-10-08
 
 ### 修复（Bug 修复）
 

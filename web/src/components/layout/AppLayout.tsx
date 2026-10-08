@@ -1,5 +1,6 @@
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { getCurrentUser, clearToken } from '../../lib/auth'
+import { APP_VERSION } from '../../lib/version'
 import SyncStatusBadge from '../SyncStatusBadge'
 import NotificationBell from './NotificationBell'
 import MobileBottomTabs from './MobileBottomTabs'
@@ -67,7 +68,7 @@ function DesktopLayout() {
         </main>
       </div>
       <footer className="flex h-8 shrink-0 items-center justify-between border-t border-line bg-card px-6 text-xs text-ink-secondary">
-        <span>礼云随笔 v0.1.0</span>
+        <span>礼云随笔 v{APP_VERSION}</span>
         <span>Ctrl+N 记一笔 · Ctrl+F 搜索 · Esc 返回</span>
       </footer>
     </div>
