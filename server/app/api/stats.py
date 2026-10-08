@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select, union
@@ -31,7 +31,8 @@ async def overview_summary(
 ):
     """首页总览汇总：日常随礼 + 礼簿现场收礼。
 
-    - 日常记录按 event_date 过滤；礼簿记录按 record_time 过滤
+    - 日常记录与礼簿记录均按数据日期过滤（event_date / 所属礼簿宴席日期），
+      补录历史宴席时与月度趋势口径一致
     - 礼簿收礼全部计入"收到"（total_in），与人员/统计模块口径一致
     """
     daily_base = [DailyRecord.owner_id == current_user.id, DailyRecord.is_deleted == False]
@@ -47,16 +48,17 @@ async def overview_summary(
         select(func.coalesce(func.sum(DailyRecord.amount), 0)).where(*daily_base, DailyRecord.type == "in")
     )).scalar_one()
 
+    # 礼簿收礼按所属礼簿的宴席日期过滤（数据里的时间），而非录入时间
     gb_base = [GbRecord.owner_id == current_user.id, GbRecord.is_deleted == False]
-    # record_time 以无时区 UTC 存储，"某天"按本地日期理解，需换算为 UTC 时间范围避免时区错位漏数
     if start_date:
-        start_dt = datetime.combine(start_date, datetime.min.time()).astimezone(timezone.utc).replace(tzinfo=None)
-        gb_base.append(GbRecord.record_time >= start_dt)
+        gb_base.append(Guestbook.event_date >= start_date)
     if end_date:
-        end_dt = datetime.combine(end_date, datetime.max.time()).astimezone(timezone.utc).replace(tzinfo=None)
-        gb_base.append(GbRecord.record_time <= end_dt)
+        gb_base.append(Guestbook.event_date <= end_date)
     gb_in = (await db.execute(
-        select(func.coalesce(func.sum(GbRecord.amount), 0)).where(*gb_base)
+        select(func.coalesce(func.sum(GbRecord.amount), 0))
+        .select_from(GbRecord)
+        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
+        .where(*gb_base)
     )).scalar_one()
 
     total_in = daily_in + gb_in

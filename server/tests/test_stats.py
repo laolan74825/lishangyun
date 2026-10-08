@@ -187,25 +187,62 @@ class TestOverviewSummary:
         assert data["net"] == 60000
 
     async def test_overview_date_range_filters_both_sources(self, client, admin_headers, db_session):
+        import datetime
+        today = datetime.date.today()
         gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        # 宴席日期对齐到今天，使礼簿记录落在查询区间内
+        await db_session.execute(
+            update(Guestbook).where(Guestbook.id == gb_id).values(event_date=today)
+        )
+        await db_session.commit()
         client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",
             "amount": 50000,
             "payment_method": "cash",
         }, headers=admin_headers)
 
-        # 区间外（昨天以前）：不包含今天录入的礼簿记录
+        # 区间外（2020 年）：不包含今天录入的礼簿记录
         resp = client.get("/api/stats/overview?start_date=2020-01-01&end_date=2020-12-31",
                           headers=admin_headers)
         assert resp.json()["total_in"] == 0
 
-        # 区间内：包含
-        today = __import__("datetime").date.today().isoformat()
+        # 区间内：包含（礼簿记录按宴席日期归属）
         resp = client.get(
-            f"/api/stats/overview?start_date={today}&end_date={today}",
+            f"/api/stats/overview?start_date={today.isoformat()}&end_date={today.isoformat()}",
             headers=admin_headers,
         )
         assert resp.json()["total_in"] == 50000
+
+    async def test_overview_gb_record_filters_by_event_date_not_record_time(self, client, admin_headers, db_session):
+        """今天补录上月宴席的收礼：计入上月区间，不计入本月区间"""
+        import datetime
+        today = datetime.date.today()
+        first_of_this = today.replace(day=1)
+        last_month_day = first_of_this - datetime.timedelta(days=1)
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        await db_session.execute(
+            update(Guestbook).where(Guestbook.id == gb_id).values(event_date=last_month_day)
+        )
+        await db_session.commit()
+        client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "张三",
+            "amount": 50000,
+            "payment_method": "cash",
+        }, headers=admin_headers)
+
+        # 上月区间：包含
+        resp = client.get(
+            f"/api/stats/overview?start_date={last_month_day.isoformat()}&end_date={last_month_day.isoformat()}",
+            headers=admin_headers,
+        )
+        assert resp.json()["total_in"] == 50000
+
+        # 本月区间：不包含（尽管录入时间是今天）
+        resp = client.get(
+            f"/api/stats/overview?start_date={today.isoformat()}&end_date={today.isoformat()}",
+            headers=admin_headers,
+        )
+        assert resp.json()["total_in"] == 0
 
     async def test_overview_excludes_deleted(self, client, admin_headers, db_session):
         gb_id = _create_guestbook(client, admin_headers).json()["id"]
