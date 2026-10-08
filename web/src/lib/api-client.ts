@@ -712,17 +712,18 @@ export async function backfillPersonLinks(): Promise<{
   return api.post('/persons/backfill-links', {})
 }
 
+/** 礼簿汇总条目（GET /guestbooks/summaries 返回项） */
+export type GuestbookSummaryItem = Guestbook & {
+  total_records: number
+  total_amount: number
+  checked_count: number
+  unchecked_count: number
+  checked_amount: number
+  unchecked_amount: number
+}
+
 export async function getAllGuestbookSummaries() {
-  return api.get<
-    (Guestbook & {
-      total_records: number
-      total_amount: number
-      checked_count: number
-      unchecked_count: number
-      checked_amount: number
-      unchecked_amount: number
-    })[]
-  >('/guestbooks/summaries')
+  return api.get<GuestbookSummaryItem[]>('/guestbooks/summaries')
 }
 
 export async function getPersonRanking(limit = 10, sort: 'out' | 'in' | 'net' = 'net') {

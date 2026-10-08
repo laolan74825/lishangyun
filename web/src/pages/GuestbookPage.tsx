@@ -21,7 +21,8 @@ import {
   useCollaborationInviteLogs,
 } from '../hooks/useQueries'
 import { searchUser } from '../lib/api-client'
-import type { CreateCollaborationInviteResult, UserSearchResult } from '../lib/api-client'
+import type { CreateCollaborationInviteResult, GuestbookSummaryItem, UserSearchResult } from '../lib/api-client'
+import { formatFen } from '../lib/format'
 import type { CollaborationInvite } from '../types'
 
 /* ========================= 协助邀请弹窗 ========================= */
@@ -63,10 +64,13 @@ function InviteModal({ guestbookId, onClose }: InviteModalProps) {
 
   const activeInvites = invites.filter((i) => i.status === 'pending' || i.status === 'accepted')
 
+  // 只有需要显示倒计时（有待接受邀请或刚生成邀请码）时才每秒刷新
+  const hasCountdown = generated !== null || invites.some((i) => i.status === 'pending')
   useEffect(() => {
+    if (!hasCountdown) return
     const timer = setInterval(() => setNow(dayjs()), 1000)
     return () => clearInterval(timer)
-  }, [])
+  }, [hasCountdown])
 
   async function handleSearch() {
     const keyword = keywordInput.trim()
@@ -219,6 +223,7 @@ function InviteModal({ guestbookId, onClose }: InviteModalProps) {
                     setSearchError(null)
                   }}
                   placeholder="输入对方注册邮箱或用户名…"
+                  aria-label="对方注册邮箱或用户名"
                   className="h-11 flex-1 rounded-btn border border-line px-4 text-base outline-none focus:border-2 focus:border-primary"
                 />
                 <button
@@ -262,6 +267,7 @@ function InviteModal({ guestbookId, onClose }: InviteModalProps) {
                 type="datetime-local"
                 value={startInput}
                 onChange={(e) => setStartInput(e.target.value)}
+                aria-label="协作开始时间"
                 className="h-10 flex-1 rounded-btn border border-line px-3 text-sm outline-none focus:border-2 focus:border-primary"
               />
               <span className="text-sm text-ink-secondary">至</span>
@@ -269,6 +275,7 @@ function InviteModal({ guestbookId, onClose }: InviteModalProps) {
                 type="datetime-local"
                 value={endInput}
                 onChange={(e) => setEndInput(e.target.value)}
+                aria-label="协作结束时间"
                 className="h-10 flex-1 rounded-btn border border-line px-3 text-sm outline-none focus:border-2 focus:border-primary"
               />
             </div>
@@ -327,9 +334,133 @@ function InviteModal({ guestbookId, onClose }: InviteModalProps) {
 
 /* ========================= 礼簿列表页 ========================= */
 
+interface GuestbookCardProps {
+  gb: GuestbookSummaryItem
+  onDelete: (id: number) => void
+  onInvite: (id: number) => void
+  onUnarchive: (id: number) => void
+}
+
+/**
+ * 单个礼簿卡片。
+ * 注意：必须是组件外的稳定组件类型——定义在列表组件内部会导致
+ * 每次渲染重建所有卡片的 DOM 子树（动画重置、状态丢失）。
+ */
+function GuestbookCard({ gb, onDelete, onInvite, onUnarchive }: GuestbookCardProps) {
+  const navigate = useNavigate()
+  const pct = gb.total_records > 0
+    ? Math.round((gb.checked_count / gb.total_records) * 100)
+    : 0
+  return (
+    <div className="mx-auto flex h-full w-full max-w-[350px] flex-col gap-3 rounded-card bg-card p-5 shadow-card transition-shadow hover:shadow-lg">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold text-ink">{gb.name}</h3>
+            {gb.person_merged_at && (
+              <span className="rounded bg-success/10 px-1.5 py-0.5 text-xs text-success">已合并</span>
+            )}
+            {gb.total_records === 0 && gb.id && (
+              <button
+                onClick={() => onDelete(gb.id!)}
+                className="rounded px-1.5 py-0.5 text-xs font-medium text-danger transition-colors hover:bg-danger-bg"
+                title="删除礼簿"
+              >
+                删除
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-ink-secondary">
+            {gb.event_type} · {gb.event_date}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <GuestbookStatusBadge status={gb.status} />
+          <PrintGuestbookButton
+            guestbook={gb}
+            className="rounded px-1 py-0.5 text-xs text-ink-secondary transition-colors hover:text-primary"
+          />
+        </div>
+      </div>
+      {gb.total_records > 0 && (
+        <div className="flex items-center gap-4 text-sm">
+          <span className="font-bold text-ink">{formatFen(gb.total_amount)}</span>
+          <span className="text-ink-secondary">{gb.total_records} 笔</span>
+          <span className="text-ink-secondary">对账 {pct}%</span>
+        </div>
+      )}
+      {gb.total_records > 0 && (
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+          <div
+            className="h-full rounded-full bg-success transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      <div className="flex items-center gap-3 text-xs text-ink-secondary">
+        <span>创建于 {dayjs(gb.created_at).format('YYYY-MM-DD HH:mm')}</span>
+        {gb.operator_note && <span>备注：{gb.operator_note}</span>}
+      </div>
+      <div className="mt-auto flex gap-2">
+        {gb.status === 'active' && (
+          <Link
+            to="/guestbooks/$id/collect"
+            params={{ id: String(gb.id) }}
+            className="flex-1 rounded-btn bg-primary py-2.5 text-center text-sm font-semibold text-white"
+          >
+            进入收礼
+          </Link>
+        )}
+        {/* 收尾中可继续补录宾客记录（F-2.8 收尾期补录） */}
+        {gb.status === 'closing' && (
+          <Link
+            to="/guestbooks/$id/collect"
+            params={{ id: String(gb.id) }}
+            className="flex-1 rounded-btn bg-primary py-2.5 text-center text-sm font-semibold text-white"
+          >
+            进入补录
+          </Link>
+        )}
+        {gb.status === 'active' && (
+          <button
+            onClick={() => gb.id && onInvite(gb.id)}
+            className="rounded-btn border border-info px-4 py-2.5 text-sm font-medium text-info hover:bg-info/10"
+          >
+            协助邀请
+          </button>
+        )}
+        <button
+          onClick={() => navigate({ to: '/guestbooks/$id', params: { id: String(gb.id) } })}
+          className="rounded-btn border border-line px-4 py-2.5 text-sm font-medium text-ink-secondary hover:border-primary"
+        >
+          礼簿详情
+        </button>
+        {(gb.status === 'closing' || gb.status === 'archived') && (
+          <button
+            className="rounded-btn border border-info px-4 py-2.5 text-sm font-medium text-info hover:bg-info/10"
+            aria-label="将礼簿记录合并关联到人员库"
+            title="将礼簿记录合并关联到人员库"
+            onClick={() => navigate({ to: '/guestbooks/$id/merge', params: { id: String(gb.id) } })}
+          >
+            合并
+          </button>
+        )}
+        {gb.status === 'archived' && (
+          <button
+            onClick={() => gb.id && onUnarchive(gb.id)}
+            className="rounded-btn border border-warning px-4 py-2.5 text-sm font-medium text-warning hover:bg-warning/10"
+            title="恢复为收尾中，可继续补录和修正"
+          >
+            恢复收尾中
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function GuestbookListPage() {
   const { data: guestbooks = [], isLoading: loading } = useAllGuestbookSummaries()
-  const navigate = useNavigate()
   const { toast, showToast } = useToast()
   const deleteMutation = useDeleteGuestbook()
   const unarchiveMutation = useUnarchiveGuestbook()
@@ -378,117 +509,6 @@ export function GuestbookListPage() {
     })
   }
 
-  const Card = ({ gb }: { gb: (typeof guestbooks)[number] }) => {
-    const pct = gb.total_records > 0
-      ? Math.round((gb.checked_count / gb.total_records) * 100)
-      : 0
-    return (
-      <div className="mx-auto flex h-full w-full max-w-[350px] flex-col gap-3 rounded-card bg-card p-5 shadow-card transition-shadow hover:shadow-lg">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-bold text-ink">{gb.name}</h3>
-              {gb.person_merged_at && (
-                <span className="rounded bg-success/10 px-1.5 py-0.5 text-xs text-success">已合并</span>
-              )}
-              {gb.total_records === 0 && gb.id && (
-                <button
-                  onClick={() => setDeleteId(gb.id!)}
-                  className="rounded px-1.5 py-0.5 text-xs font-medium text-danger transition-colors hover:bg-danger-bg"
-                  title="删除礼簿"
-                >
-                  删除
-                </button>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-ink-secondary">
-              {gb.event_type} · {gb.event_date}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <GuestbookStatusBadge status={gb.status} />
-            <PrintGuestbookButton
-              guestbook={gb}
-              className="rounded px-1 py-0.5 text-xs text-ink-secondary transition-colors hover:text-primary"
-            />
-          </div>
-        </div>
-        {gb.total_records > 0 && (
-          <div className="flex items-center gap-4 text-sm">
-            <span className="font-bold text-ink">¥{(gb.total_amount / 100).toFixed(2)}</span>
-            <span className="text-ink-secondary">{gb.total_records} 笔</span>
-            <span className="text-ink-secondary">对账 {pct}%</span>
-          </div>
-        )}
-        {gb.total_records > 0 && (
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full bg-success transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        )}
-        <div className="flex items-center gap-3 text-xs text-ink-secondary">
-          <span>创建于 {dayjs(gb.created_at).format('YYYY-MM-DD HH:mm')}</span>
-          {gb.operator_note && <span>备注：{gb.operator_note}</span>}
-        </div>
-        <div className="mt-auto flex gap-2">
-          {gb.status === 'active' && (
-            <Link
-              to="/guestbooks/$id/collect"
-              params={{ id: String(gb.id) }}
-              className="flex-1 rounded-btn bg-primary py-2.5 text-center text-sm font-semibold text-white"
-            >
-              进入收礼
-            </Link>
-          )}
-          {/* 收尾中可继续补录宾客记录（F-2.8 收尾期补录） */}
-          {gb.status === 'closing' && (
-            <Link
-              to="/guestbooks/$id/collect"
-              params={{ id: String(gb.id) }}
-              className="flex-1 rounded-btn bg-primary py-2.5 text-center text-sm font-semibold text-white"
-            >
-              进入补录
-            </Link>
-          )}
-          {gb.status === 'active' && (
-            <button
-              onClick={() => gb.id && setInviteGuestbookId(gb.id)}
-              className="rounded-btn border border-info px-4 py-2.5 text-sm font-medium text-info hover:bg-info/10"
-            >
-              协助邀请
-            </button>
-          )}
-          <button
-            onClick={() => navigate({ to: '/guestbooks/$id', params: { id: String(gb.id) } })}
-            className="rounded-btn border border-line px-4 py-2.5 text-sm font-medium text-ink-secondary hover:border-primary"
-          >
-            礼簿详情
-          </button>
-          {(gb.status === 'closing' || gb.status === 'archived') && (
-            <button
-              className="rounded-btn border border-info px-4 py-2.5 text-sm font-medium text-info hover:bg-info/10"
-              title="将礼簿记录合并关联到人员库"
-              onClick={() => navigate({ to: '/guestbooks/$id/merge', params: { id: String(gb.id) } })}
-            >
-              合并
-            </button>
-          )}
-          {gb.status === 'archived' && (
-            <button
-              onClick={() => gb.id && setUnarchiveId(gb.id)}
-              className="rounded-btn border border-warning px-4 py-2.5 text-sm font-medium text-warning hover:bg-warning/10"
-              title="恢复为收尾中，可继续补录和修正"
-            >
-              恢复收尾中
-            </button>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <PageScaffold
       title="礼簿管理"
@@ -533,7 +553,7 @@ export function GuestbookListPage() {
               </div>
               <div className="grid grid-cols-1 gap-4 min-[950px]:grid-cols-2 min-[1380px]:grid-cols-3">
                 {active.map((gb) => (
-                  <Card key={gb.id} gb={gb} />
+                  <GuestbookCard key={gb.id} gb={gb} onDelete={(id) => setDeleteId(id)} onInvite={(id) => setInviteGuestbookId(id)} onUnarchive={(id) => setUnarchiveId(id)} />
                 ))}
               </div>
             </section>
@@ -545,7 +565,7 @@ export function GuestbookListPage() {
               </div>
               <div className="grid grid-cols-1 gap-4 min-[950px]:grid-cols-2 min-[1380px]:grid-cols-3">
                 {archived.map((gb) => (
-                  <Card key={gb.id} gb={gb} />
+                  <GuestbookCard key={gb.id} gb={gb} onDelete={(id) => setDeleteId(id)} onInvite={(id) => setInviteGuestbookId(id)} onUnarchive={(id) => setUnarchiveId(id)} />
                 ))}
               </div>
             </section>
@@ -644,9 +664,7 @@ export function GuestbookNewPage() {
         operator_note: note || undefined,
       })
       showToast('礼簿创建成功')
-      setTimeout(() => {
-        navigate({ to: '/guestbooks/$id/collect', params: { id: String(gbId) } })
-      }, 100)
+      navigate({ to: '/guestbooks/$id/collect', params: { id: String(gbId) } })
     } catch (err) {
       console.error('创建礼簿失败:', err)
       showToast('创建失败：' + (err instanceof Error ? err.message : '未知错误'))

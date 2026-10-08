@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Toast, { useToast } from '../components/Toast'
 import GuestbookStatusBadge from '../components/guestbook/GuestbookStatusBadge'
 import type { CollaborationInvitePending, Guestbook } from '../types'
+import type { GuestbookSummaryItem } from '../lib/api-client'
 import { formatFen } from '../lib/format'
 import {
   useGuestbooks,
@@ -17,13 +18,6 @@ import {
   useAcceptCollaborationInvite,
   useRejectCollaborationInvite,
 } from '../hooks/useQueries'
-
-/** 礼簿汇总条目（与 api.getAllGuestbookSummaries 返回项一致） */
-type GuestbookSummaryItem = Guestbook & {
-  total_records: number
-  total_amount: number
-  checked_count: number
-}
 
 function ActiveGuestbookItem({ gb, summary }: { gb: Guestbook; summary?: GuestbookSummaryItem }) {
   const pct = summary && summary.total_records > 0
@@ -278,7 +272,7 @@ export default function DashboardPage() {
   // 一次批量请求替代每个礼簿单独查汇总（首页 N+1 优化）
   const { data: summaries = [] } = useAllGuestbookSummaries()
   const summaryById = useMemo(
-    () => new Map(summaries.map((s) => [s.id, s as GuestbookSummaryItem])),
+    () => new Map(summaries.map((s) => [s.id, s])),
     [summaries],
   )
   const { data: recentDaily = [], isLoading: dailyLoading } = useDailyRecords(recentDailyFilters)
