@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
@@ -8,6 +8,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import RelationTagFilter from '../components/people/RelationTagFilter'
 import { DEFAULT_RELATION_TAGS } from '../types'
 import type { Person, RelationTag, DailyRecord, GbRecord } from '../types'
+import { formatFen } from '../lib/format'
+import { useDebounce } from '../hooks/useDebounce'
 import {
   getDailyRecordsByName,
   getGbRecordsByName,
@@ -52,9 +54,11 @@ export default function PeoplePage() {
 
   /* 往来明细展开状态 */
   const [expandedPerson, setExpandedPerson] = useState<string | null>(null)
+  const expandedPersonRef = useRef<string | null>(null)
   const [txRecords, setTxRecords] = useState<{ daily: DailyRecord[]; gb: GbRecord[] }>({ daily: [], gb: [] })
   const [txSummary, setTxSummary] = useState<{ total_out: number; total_in: number; net: number; daily_count: number; gb_count: number } | null>(null)
   const [txLoading, setTxLoading] = useState(false)
+  const [txError, setTxError] = useState(false)
 
   /* 确认弹窗 */
   const [deletingPersonId, setDeletingPersonId] = useState<number | null>(null)
@@ -80,14 +84,16 @@ export default function PeoplePage() {
   const { toast, showToast } = useToast()
 
   const trimmedKeyword = keyword.trim()
+  // 300ms 防抖，避免每敲一个字就发一次搜索请求
+  const debouncedKeyword = useDebounce(trimmedKeyword, 300)
   const { data: allPersons = [], isLoading: allLoading } = usePersons()
-  const { data: searchResults = [], isLoading: searchLoading } = useSearchPersons(trimmedKeyword)
+  const { data: searchResults = [], isLoading: searchLoading } = useSearchPersons(debouncedKeyword)
 
   const filteredPersons = useMemo(() => {
-    const base = trimmedKeyword ? searchResults : allPersons
+    const base = debouncedKeyword ? searchResults : allPersons
     if (filterTag === 'all') return base
     return base.filter((p) => p.relation_tag === filterTag)
-  }, [trimmedKeyword, searchResults, allPersons, filterTag])
+  }, [debouncedKeyword, searchResults, allPersons, filterTag])
 
   const tagCounts = useMemo(() => {
     const counts = {} as Record<RelationTag, number>
@@ -97,7 +103,8 @@ export default function PeoplePage() {
     return counts
   }, [allPersons])
 
-  const loading = trimmedKeyword ? searchLoading : allLoading
+  // 防抖窗口内也算搜索加载中，避免列表闪回全量数据
+  const loading = trimmedKeyword ? (debouncedKeyword !== trimmedKeyword || searchLoading) : allLoading
 
   const createMutation = useCreatePerson()
   const updateMutation = useUpdatePerson()
@@ -106,25 +113,32 @@ export default function PeoplePage() {
   /* 展开/收起往来明细 */
   const toggleExpand = useCallback(async (personName: string) => {
     if (expandedPerson === personName) {
+      expandedPersonRef.current = null
       setExpandedPerson(null)
       return
     }
+    expandedPersonRef.current = personName
     setExpandedPerson(personName)
     setTxLoading(true)
+    setTxError(false)
     try {
       const [daily, gb, summary] = await Promise.all([
         getDailyRecordsByName(personName),
         getGbRecordsByName(personName),
         getTransactionSummaryByName(personName),
       ])
+      // 请求期间用户可能已展开他人：丢弃过期结果，避免慢响应覆盖新明细
+      if (expandedPersonRef.current !== personName) return
       daily.sort((a, b) => b.event_date.localeCompare(a.event_date))
       gb.sort((a, b) => b.record_time.localeCompare(a.record_time))
       setTxRecords({ daily, gb })
       setTxSummary(summary)
     } catch (e) {
+      if (expandedPersonRef.current !== personName) return
+      setTxError(true)
       showToast('加载往来明细失败：' + (e as Error).message)
     } finally {
-      setTxLoading(false)
+      if (expandedPersonRef.current === personName) setTxLoading(false)
     }
   }, [expandedPerson, showToast])
 
@@ -201,7 +215,6 @@ export default function PeoplePage() {
     setDeletingPersonId(null)
   }
 
-  const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
   const isPending = createMutation.isPending || updateMutation.isPending
 
   /* 类别候选：六个默认类别 + 现有人员已用的自定义类别 */
@@ -254,6 +267,7 @@ export default function PeoplePage() {
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="搜索姓名、称谓、电话、别名…"
+          aria-label="搜索人员"
           className="h-11 flex-1 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
         />
         <RelationTagFilter
@@ -273,6 +287,14 @@ export default function PeoplePage() {
           <p className="text-ink-secondary">
             {trimmedKeyword ? '未找到匹配的人员' : '暂无人员档案'}
           </p>
+          {!trimmedKeyword && (
+            <button
+              onClick={openNew}
+              className="rounded-btn bg-primary px-6 py-3 text-sm font-semibold text-white"
+            >
+              ＋ 新增人员
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -337,22 +359,24 @@ export default function PeoplePage() {
                 <div className="border-t border-line bg-bg p-4">
                   {txLoading ? (
                     <p className="py-4 text-center text-sm text-ink-secondary">加载中…</p>
+                  ) : txError ? (
+                    <p className="py-4 text-center text-sm text-danger">往来明细加载失败，请收起后重试</p>
                   ) : (
                     <>
                       {txSummary && (
                         <div className="mb-3 grid grid-cols-3 gap-2">
                           <div className="min-w-0 rounded-btn bg-white p-2 text-center">
                             <div className="text-xs text-ink-secondary">总送出</div>
-                            <div className="break-all text-sm font-bold text-danger">{fmt(txSummary.total_out)}</div>
+                            <div className="break-all text-sm font-bold text-danger">{formatFen(txSummary.total_out)}</div>
                           </div>
                           <div className="min-w-0 rounded-btn bg-white p-2 text-center">
                             <div className="text-xs text-ink-secondary">总收到</div>
-                            <div className="break-all text-sm font-bold text-success">{fmt(txSummary.total_in)}</div>
+                            <div className="break-all text-sm font-bold text-success">{formatFen(txSummary.total_in)}</div>
                           </div>
                           <div className="min-w-0 rounded-btn bg-white p-2 text-center">
                             <div className="text-xs text-ink-secondary">净差额</div>
                             <div className={`break-all text-sm font-bold ${txSummary.net >= 0 ? 'text-success' : 'text-danger'}`}>
-                              {fmt(txSummary.net)}
+                              {formatFen(txSummary.net)}
                             </div>
                           </div>
                         </div>
@@ -381,7 +405,7 @@ export default function PeoplePage() {
                                 <span className="text-xs text-ink-secondary">{r.event_date}</span>
                               </div>
                               <span className={`font-bold ${r.type === 'out' ? 'text-danger' : 'text-success'}`}>
-                                {r.type === 'out' ? '-' : '+'}{fmt(r.amount)}
+                                {r.type === 'out' ? '-' : '+'}{formatFen(r.amount)}
                               </span>
                             </li>
                           ))}
@@ -401,7 +425,7 @@ export default function PeoplePage() {
                                   {dayjs(r.record_time).format('YYYY-MM-DD')}
                                 </span>
                               </div>
-                              <span className="font-bold text-success">+{fmt(r.amount)}</span>
+                              <span className="font-bold text-success">+{formatFen(r.amount)}</span>
                             </li>
                           ))}
                         </ul>
@@ -487,7 +511,9 @@ export default function PeoplePage() {
           <input
             value={formPhone}
             onChange={(e) => setFormPhone(e.target.value)}
+            type="tel"
             inputMode="tel"
+            autoComplete="tel"
             className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
           />
         </label>
