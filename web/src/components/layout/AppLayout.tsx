@@ -44,7 +44,11 @@ function MobileLayout() {
   return (
     <div className="flex min-h-screen flex-col">
       <MobileHeader />
-      <main className="mx-auto max-w-6xl flex-1 px-4 pb-24 pt-4">
+      {/* min-w-0 必需：flex 子项默认 min-width:auto=min-content，子树里任何
+          未约束的宽内容（如 min-w-[860px] 表格）会把整页撑宽；w-full 让宽度
+          确定为视口宽（max-w-6xl 封顶、mx-auto 居中），内部 overflow-x-auto
+          容器才能真正收住横向滚动 */}
+      <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 pb-24 pt-4">
         <Outlet />
       </main>
       <MobileBottomTabs />

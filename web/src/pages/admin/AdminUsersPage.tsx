@@ -224,7 +224,7 @@ export default function AdminUsersPage() {
           ) : users.length === 0 ? (
             <p className="p-5 text-sm text-ink-secondary">暂无用户</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="min-w-0 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line text-left text-ink-secondary">

@@ -70,7 +70,7 @@ export default function DataImportPreview({
       </div>
 
       {/* 表格 */}
-      <div className="overflow-x-auto rounded-card border border-line">
+      <div className="min-w-0 overflow-x-auto rounded-card border border-line">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line bg-bg">

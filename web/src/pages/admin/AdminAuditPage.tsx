@@ -55,7 +55,7 @@ function JsonDiff({ before, after }: { before?: string; after?: string }) {
   if (allKeys.size === 0) return null
 
   return (
-    <div className="overflow-x-auto rounded-btn bg-bg p-3">
+    <div className="min-w-0 overflow-x-auto rounded-btn bg-bg p-3">
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-ink-secondary">

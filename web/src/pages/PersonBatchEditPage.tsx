@@ -142,7 +142,7 @@ export default function PersonBatchEditPage() {
   }
 
   const inputCls =
-    'h-9 w-full rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary'
+    'h-9 w-full rounded border border-line bg-white px-2 text-base outline-none focus:border-primary md:text-sm'
   const dirtyCls = 'border-warning/70 bg-warning/5'
 
   /* 关系类别候选：默认类别 + 现有人员已用的自定义类别 */
@@ -182,6 +182,9 @@ export default function PersonBatchEditPage() {
       }
     >
       <div className="flex flex-col gap-3 rounded-card bg-card p-4 shadow-card">
+        <p className="text-xs leading-relaxed text-ink-secondary">
+          💡 表格较宽，手机上可左右滑动编辑；如需批量修改多人，建议在平板或电脑浏览器中操作，体验更佳。
+        </p>
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
@@ -193,7 +196,7 @@ export default function PersonBatchEditPage() {
         ) : filtered.length === 0 ? (
           <p className="py-10 text-center text-ink-secondary">{persons.length === 0 ? '暂无人员档案' : '无匹配人员'}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="min-w-0 overflow-x-auto">
             <datalist id="batch-relation-options">
               {relationOptions.map((t) => (
                 <option key={t} value={t} />
