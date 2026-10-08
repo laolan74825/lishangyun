@@ -4,6 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // 兼容旧设备浏览器（如老款平板内置 WebView）：默认 baseline 目标过新，
+  // 旧内核遇到新语法会直接白屏（JS 执行失败，无任何请求发出）
+  build: {
+    target: 'es2018',
+  },
   plugins: [
     react({
       compiler: true,
