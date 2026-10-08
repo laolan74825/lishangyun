@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import dayjs from 'dayjs'
 import GuestbookStatusBadge from './GuestbookStatusBadge'
 import type { Guestbook } from '../../types'
+import { formatFen } from '../../lib/format'
 
 interface GuestbookCardProps {
   guestbook: Guestbook
@@ -43,7 +44,7 @@ export default function GuestbookCard({ guestbook, summary, onNavigate }: Guestb
         <>
           <div className="flex items-center gap-4 text-sm">
             <span className="font-bold text-ink">
-              ¥{(summary.total_amount / 100).toFixed(2)}
+              {formatFen(summary.total_amount)}
             </span>
             <span className="text-ink-secondary">{summary.total_records} 笔</span>
             <span className="text-ink-secondary">对账 {pct}%</span>

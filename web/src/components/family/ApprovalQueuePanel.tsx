@@ -3,6 +3,7 @@ import Modal from '../Modal'
 import { listApprovals, reviewApproval } from '../../lib/api-client'
 import { getCurrentUser } from '../../lib/auth'
 import type { PendingApproval } from '../../types'
+import { formatFen } from '../../lib/format'
 
 const ACTION_LABELS: Record<string, string> = {
   CREATE: '新建',
@@ -390,7 +391,7 @@ function formatFieldName(key: string): string {
 
 function formatFieldValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return '—'
-  if (key === 'amount' && typeof value === 'number') return `¥${(value / 100).toFixed(2)}`
+  if (key === 'amount' && typeof value === 'number') return formatFen(value)
   if (key === 'is_private' && typeof value === 'boolean') return value ? '是' : '否'
   if (key === 'type' && value === 'in') return '收进'
   if (key === 'type' && value === 'out') return '送出'

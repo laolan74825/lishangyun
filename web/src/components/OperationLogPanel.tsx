@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import dayjs from 'dayjs'
 import type { OperationLog } from '../types'
 import { getOperationLogs } from '../lib/api-client'
+import { formatFen } from '../lib/format'
 
 /**
  * 操作日志面板（需求 F-5.x）
@@ -67,7 +68,7 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
     v === 'cash' ? '现金' : v === 'wechat' ? '微信' : v === 'other' ? '其他' : String(v ?? '—')
   const fieldValue = (key: string, v: unknown) => {
     if (v === undefined || v === null || v === '') return '—'
-    if (key === 'amount' && typeof v === 'number') return `¥${(v / 100).toFixed(2)}`
+    if (key === 'amount' && typeof v === 'number') return formatFen(v)
     if (key === 'payment_method') return paymentText(v)
     if (typeof v === 'boolean') return v ? '是' : '否'
     return String(v)
@@ -95,7 +96,7 @@ export default function OperationLogPanel({ guestbookId }: { guestbookId: number
 
       if (!record || typeof record !== 'object' || !record.guest_name) return null
       const parts: string[] = [`宾客「${record.guest_name}」`]
-      if (typeof record.amount === 'number') parts.push(`金额 ¥${(record.amount / 100).toFixed(2)}`)
+      if (typeof record.amount === 'number') parts.push(`金额 ${formatFen(record.amount)}`)
       if (record.payment_method) parts.push(paymentText(record.payment_method))
       let summary = `收礼记录：${parts.join(' · ')}`
       if (changes && Object.keys(changes).length > 0) {

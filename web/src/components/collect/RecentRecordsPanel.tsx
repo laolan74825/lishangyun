@@ -1,6 +1,6 @@
 import dayjs from 'dayjs'
 import type { GbRecord } from '../../types'
-import { amountToChinese } from '../../lib/format'
+import { amountToChinese, formatFen } from '../../lib/format'
 
 /** 最近收款记录列表（分页） */
 export default function RecentRecordsPanel({
@@ -72,7 +72,7 @@ export default function RecentRecordsPanel({
                 </div>
               </div>
               <div className="text-right">
-                <span className="font-bold text-ink">¥{(r.amount / 100).toFixed(2)}</span>
+                <span className="font-bold text-ink">{formatFen(r.amount)}</span>
                 {r.check_status === 'checked' && (
                   <span className="ml-1 text-xs text-success">✓ 已对账</span>
                 )}
@@ -85,7 +85,7 @@ export default function RecentRecordsPanel({
         <div className="mt-3 flex items-center justify-between rounded-btn bg-primary/10 px-3 py-2 text-sm">
           <div className="flex items-center gap-2">
             <span className="font-medium text-primary">
-              已勾选 {selectedCount} 条，合计 ¥{(selectedTotal / 100).toFixed(2)}
+              已勾选 {selectedCount} 条，合计 {formatFen(selectedTotal)}
             </span>
             {onClearSelection && (
               <button

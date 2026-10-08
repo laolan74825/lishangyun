@@ -28,6 +28,7 @@ import {
   useArchiveGuestbook,
   useUnarchiveGuestbook,
 } from '../hooks/useQueries'
+import { formatFen } from '../lib/format'
 
 type TabKey = 'records' | 'reconciliation' | 'accounts' | 'trash' | 'logs'
 
@@ -204,8 +205,7 @@ export default function GuestbookDetailPage() {
     [accountStats],
   )
 
-  const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
-
+  
   /* 收礼记录查询：按宾客姓名、电话、代送人、记账员、备注模糊匹配 */
   const filteredRecords = useMemo(() => {
     const k = recordKeyword.trim().toLowerCase()
@@ -313,7 +313,7 @@ export default function GuestbookDetailPage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-card bg-card p-4 text-center shadow-card">
             <div className="text-caption text-ink-secondary">总金额</div>
-            <div className="mt-1 text-lg font-bold text-ink">{fmt(summary.total_amount)}</div>
+            <div className="mt-1 text-lg font-bold text-ink">{formatFen(summary.total_amount)}</div>
           </div>
           <div className="rounded-card bg-card p-4 text-center shadow-card">
             <div className="text-caption text-ink-secondary">总笔数</div>
@@ -423,7 +423,7 @@ export default function GuestbookDetailPage() {
               </div>
               {recordKeyword.trim() && (
                 <span className="whitespace-nowrap text-sm text-ink-secondary">
-                  匹配 {filteredRecords.length} 笔 · 共 {fmt(filteredAmount)}
+                  匹配 {filteredRecords.length} 笔 · 共 {formatFen(filteredAmount)}
                 </span>
               )}
             </div>
@@ -463,7 +463,7 @@ export default function GuestbookDetailPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold text-ink">{fmt(r.amount)}</span>
+                    <span className="text-lg font-bold text-ink">{formatFen(r.amount)}</span>
                     {guestbook?.status === 'active' && (
                       <div className="flex gap-1">
                         <button
@@ -525,13 +525,13 @@ export default function GuestbookDetailPage() {
                         )}
                       </div>
                       <div className="text-right">
-                        <div className="text-lg font-bold text-ink">{fmt(s.total)}</div>
+                        <div className="text-lg font-bold text-ink">{formatFen(s.total)}</div>
                         <div className="text-xs text-ink-secondary">{s.count} 笔</div>
                       </div>
                     </div>
                     {s.account.type === 'wechat' && s.remaining !== undefined && (
                       <div className="mt-2 text-xs text-ink-secondary">
-                        限额 {fmt(s.account.daily_limit)} · 今日已收 {fmt(s.todayReceived)} · 剩余 {fmt(s.remaining)}
+                        限额 {formatFen(s.account.daily_limit)} · 今日已收 {formatFen(s.todayReceived)} · 剩余 {formatFen(s.remaining)}
                       </div>
                     )}
                   </div>
@@ -539,7 +539,7 @@ export default function GuestbookDetailPage() {
                 <div className="rounded-card bg-card p-5 text-center shadow-card">
                   <div className="text-caption text-ink-secondary">收礼中礼簿收款合计</div>
                   <div className="mt-1 text-2xl font-bold text-ink">
-                    {fmt(accountStatsTotal)}
+                    {formatFen(accountStatsTotal)}
                   </div>
                   <div className="text-sm text-ink-secondary">
                     {accountStats.reduce((n, x) => n + x.count, 0)} 笔

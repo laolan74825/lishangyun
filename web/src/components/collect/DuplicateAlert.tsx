@@ -1,5 +1,6 @@
 import dayjs from 'dayjs'
 import type { GbRecord } from '../../types'
+import { formatFen } from '../../lib/format'
 
 /** 重名提醒弹窗（需求 F-2.21：支持多条重名记录编辑） */
 export default function DuplicateAlert({
@@ -37,7 +38,7 @@ export default function DuplicateAlert({
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{r.guest_name}</span>
                   <span className="text-ink-secondary">
-                    ¥{(r.amount / 100).toFixed(2)} · {dayjs(r.record_time).format('MM-DD HH:mm')}
+                    {formatFen(r.amount)} · {dayjs(r.record_time).format('MM-DD HH:mm')}
                   </span>
                 </div>
                 <input

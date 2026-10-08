@@ -1,7 +1,7 @@
 import type { PaymentMethod, PaymentAccount } from '../../types'
 import { limitLevel } from '../../types'
 import NameAutocomplete from '../NameAutocomplete'
-import { amountToChinese } from '../../lib/format'
+import { amountToChinese, formatFen } from '../../lib/format'
 
 export interface MultiItem {
   id: string
@@ -108,7 +108,7 @@ export default function MultiEntryForm({
           </select>
           {selectedAccount?.type === 'wechat' && selectedLimit && selectedLimit.level !== 'normal' && (
             <span className="text-xs text-danger">
-              该账户今日剩余额度 ¥{(selectedLimit.remainingFen / 100).toFixed(2)}，请注意限额
+              该账户今日剩余额度 {formatFen(selectedLimit.remainingFen)}，请注意限额
             </span>
           )}
         </label>
@@ -202,7 +202,7 @@ export default function MultiEntryForm({
       <div className="flex items-center justify-between rounded-btn bg-bg px-4 py-3">
         <span className="text-sm font-medium text-ink">本批合计</span>
         <div className="text-right">
-          <span className="text-lg font-bold text-ink">¥{(total / 100).toFixed(2)}</span>
+          <span className="text-lg font-bold text-ink">{formatFen(total)}</span>
           {total > 0 && (
             <p className="text-xs text-ink-secondary">{amountToChinese(total)}</p>
           )}

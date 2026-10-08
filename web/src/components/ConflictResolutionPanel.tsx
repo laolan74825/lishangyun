@@ -1,5 +1,6 @@
 import { useSyncStore, type SyncConflict } from '../store/syncStore'
 import { resolveConflictUseLocal, resolveConflictUseRemote, resolveConflictDelete } from '../lib/sync-engine'
+import { formatFen } from '../lib/format'
 
 const TABLE_LABELS: Record<string, string> = {
   gb_records: '收礼记录',
@@ -13,10 +14,10 @@ const CONFLICT_TYPE_LABELS: Record<string, string> = {
   create_create: '重复创建',
 }
 
-function formatFieldValue(value: unknown): string {
+function formatFieldValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'number') {
-    if (['amount'].includes(String(value))) return `¥${(value / 100).toFixed(2)}`
+    if (key === 'amount' && typeof value === 'number') return formatFen(value)
     return String(value)
   }
   if (typeof value === 'boolean') return value ? '是' : '否'
@@ -88,10 +89,10 @@ function ConflictCard({ conflict }: { conflict: SyncConflict }) {
                 <tr key={field} className={isDiff ? 'bg-warning-bg/30' : ''}>
                   <td className="px-3 py-1.5 text-ink-secondary">{FIELD_LABELS[field] || field}</td>
                   <td className={`px-3 py-1.5 ${isDiff ? 'font-medium text-ink' : 'text-ink-secondary'}`}>
-                    {formatFieldValue(localVal)}
+                    {formatFieldValue(field, localVal)}
                   </td>
                   <td className={`px-3 py-1.5 ${isDiff ? 'font-medium text-ink' : 'text-ink-secondary'}`}>
-                    {formatFieldValue(remoteVal)}
+                    {formatFieldValue(field, remoteVal)}
                   </td>
                 </tr>
               )

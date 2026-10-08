@@ -14,6 +14,7 @@ import {
   useUpdateDailyRecord,
   useDeleteDailyRecord,
 } from '../hooks/useQueries'
+import { formatFen } from '../lib/format'
 
 /** 明细列表页（需求 F-1.4：按时间倒序、筛选搜索、底部汇总） */
 export default function RecordsListPage() {
@@ -152,7 +153,7 @@ export default function RecordsListPage() {
           <div key={card.label} className="min-w-0 rounded-card bg-card p-4 text-center shadow-card">
             <div className="text-caption text-ink-secondary">{card.label}</div>
             <div className={`mt-1 break-all text-lg font-bold ${card.color}`}>
-              {card.value >= 0 ? '' : '-'}¥{Math.abs(card.value / 100).toFixed(2)}
+              {formatFen(card.value)}
             </div>
           </div>
         ))}
@@ -209,7 +210,7 @@ export default function RecordsListPage() {
                     r.type === 'out' ? 'text-danger' : 'text-success'
                   }`}
                 >
-                  {r.type === 'out' ? '-' : '+'}¥{(r.amount / 100).toFixed(2)}
+                  {r.type === 'out' ? '-' : '+'}${formatFen(r.amount)}
                 </span>
                 <div className="flex gap-1">
                   <button

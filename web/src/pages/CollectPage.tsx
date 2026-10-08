@@ -16,7 +16,7 @@ import { useAppStore } from '../store/appStore'
 import type { PaymentMethod, GbRecord } from '../types'
 import { limitLevel } from '../types'
 import { queryKeys } from '../hooks/queryKeys'
-import { amountToChinese } from '../lib/format'
+import { amountToChinese, formatFen } from '../lib/format'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useGuestbookWebSocket } from '../hooks/useWebSocket'
 import {
@@ -273,7 +273,7 @@ export default function CollectPage() {
       })
       batchMutation.mutate(inputs, {
         onSuccess: (_ids, items) => {
-          showToast(`成功录入 ${items.length} 笔，合计 ¥${(items.reduce((s, i) => s + i.amount, 0) / 100).toFixed(2)}`)
+          showToast(`成功录入 ${items.length} 笔，合计 ${formatFen(items.reduce((s, i) => s + i.amount, 0))}`)
           setMultiItems([])
           setAgentName('')
           setBulkPaymentMethod('')
@@ -307,7 +307,7 @@ export default function CollectPage() {
         showToast('请选择微信收款账户')
         return
       }
-      const splitTag = `混合收款：现金¥${(cashFen / 100).toFixed(2)}+微信¥${(wechatFen / 100).toFixed(2)}`
+      const splitTag = `混合收款：现金${formatFen(cashFen)}+微信${formatFen(wechatFen)}`
       const baseNote = finalNote.trim() ? `${finalNote.trim()}；${splitTag}` : splitTag
       const timeStr = recordTime ? dayjs(recordTime).format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss')
       const base = {
@@ -324,7 +324,7 @@ export default function CollectPage() {
         { ...base, amount: wechatFen, payment_method: 'wechat' as PaymentMethod, account_id: splitWechatAccount.id!, note: baseNote }
       ], {
         onSuccess: () => {
-          showToast(`收礼记录已保存（现金¥${(cashFen / 100).toFixed(2)} + 微信¥${(wechatFen / 100).toFixed(2)}）`)
+          showToast(`收礼记录已保存（现金${formatFen(cashFen)} + 微信${formatFen(wechatFen)}）`)
           setGuestName('')
           setPhone('')
           setCashAmount('')
@@ -683,7 +683,7 @@ export default function CollectPage() {
                       const totalFen = (isNaN(c) ? 0 : Math.round(c * 100)) + (isNaN(w) ? 0 : Math.round(w * 100))
                       return totalFen > 0 ? (
                         <p className="text-sm text-ink-secondary">
-                          合计 ¥{(totalFen / 100).toFixed(2)}（{amountToChinese(totalFen)}）
+                          合计 {formatFen(totalFen)}（{amountToChinese(totalFen)}）
                         </p>
                       ) : null
                     })()}

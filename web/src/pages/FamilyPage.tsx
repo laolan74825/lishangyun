@@ -19,6 +19,7 @@ import {
 } from '../lib/api-client'
 import { getCurrentUser } from '../lib/auth'
 import type { FamilyGroup, FamilyMember } from '../types'
+import { formatFen } from '../lib/format'
 
 type Tab = 'members' | 'approvals' | 'stats' | 'settings'
 
@@ -542,8 +543,8 @@ function SharedStatsPanel({ groupId }: { groupId: number }) {
   const cards = [
     { label: '家庭组成员', value: `${stats.member_count} 人` },
     { label: '人员档案', value: `${stats.person_count} 人` },
-    { label: '收到礼金', value: `¥${(stats.total_received / 100).toFixed(2)}` },
-    { label: '送出礼金', value: `¥${(stats.total_sent / 100).toFixed(2)}` },
+    { label: '收到礼金', value: formatFen(stats.total_received) },
+    { label: '送出礼金', value: formatFen(stats.total_sent) },
   ]
 
   return (

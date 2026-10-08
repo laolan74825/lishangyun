@@ -10,6 +10,7 @@ import {
   getPaymentAccounts,
   batchUpdateCheckStatus
 } from '../lib/api-client'
+import { formatFen } from '../lib/format'
 
 /**
  * 对账管理面板（需求 F-7.x）
@@ -129,8 +130,7 @@ export default function ReconciliationPanel({
     }
   }
 
-  const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
-
+  
   const accountName = (id?: number) => {
     if (!id) return '—'
     return accounts.find((a) => a.id === id)?.name ?? '—'
@@ -154,7 +154,7 @@ export default function ReconciliationPanel({
             已对账 {summary.checkedCount} 笔 / 总 {summary.total} 笔
           </span>
           <span className="text-ink-secondary">
-            金额：{fmt(summary.checkedAmount)} / {fmt(summary.totalAmount)}
+            金额：{formatFen(summary.checkedAmount)} / {formatFen(summary.totalAmount)}
           </span>
           <span className="font-bold text-success">{progressPct}%</span>
         </div>
@@ -246,7 +246,7 @@ export default function ReconciliationPanel({
                 className="h-4 w-4 accent-primary"
               />
               <span className="min-w-[80px] font-medium text-ink">{r.guest_name}</span>
-              <span className="font-bold text-ink">{fmt(r.amount)}</span>
+              <span className="font-bold text-ink">{formatFen(r.amount)}</span>
               <span className="text-xs text-ink-secondary">
                 {r.payment_method === 'cash' ? '现金' : r.payment_method === 'wechat' ? '微信' : '其他'}
               </span>

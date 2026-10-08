@@ -11,6 +11,7 @@ import {
   useMergeCreatePersons,
 } from '../hooks/useQueries'
 import type { GbRecord, Person } from '../types'
+import { formatFen } from '../lib/format'
 
 /**
  * 礼簿合并向导：将礼簿内的收礼记录与人员库建立关联（不搬迁数据）。
@@ -223,7 +224,7 @@ export default function GuestbookMergePage() {
                     />
                     <span className="font-medium text-ink">{r.guest_name}</span>
                     <span className="text-xs text-ink-secondary">
-                      ¥{(r.amount / 100).toFixed(2)}
+                      {formatFen(r.amount)}
                       {r.phone ? ` · ${r.phone}` : ' · 无电话'}
                     </span>
                   </li>

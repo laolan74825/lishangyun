@@ -5,6 +5,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EventDistributionItem } from '../../types'
 import { eventTypeLabel } from '../../lib/eventType'
+import { formatFen } from '../../lib/format'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -42,7 +43,7 @@ export default function EventDistributionChart({ data }: Props) {
           const p = (params as Array<{ name: string; value: number }>)[0]
           const item = data.find((d) => eventTypeLabel(d.event_type) === p.name)
           const pct = grandTotal > 0 ? ((p.value / grandTotal) * 100).toFixed(1) : '0.0'
-          return `${p.name}<br/>金额：¥${(p.value / 100).toFixed(2)}（占比 ${pct}%）<br/>笔数：${item?.record_count ?? 0}`
+          return `${p.name}<br/>金额：${formatFen(p.value as number)}（占比 ${pct}%）<br/>笔数：${item?.record_count ?? 0}`
         },
       },
       grid: { left: 8, right: 24, top: 8, bottom: 8, containLabel: true },

@@ -1,4 +1,5 @@
 import type { Person } from '../../types'
+import { formatFen } from '../../lib/format'
 
 interface PersonCardProps {
   person: Person
@@ -23,7 +24,6 @@ const tagColors: Record<string, string> = {
 
 const tagColor = (tag: string) => tagColors[tag] ?? 'bg-gray-100 text-ink-secondary'
 
-const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
 
 export default function PersonCard({ person, summary, onEdit, onDelete, onViewDetail }: PersonCardProps) {
   return (
@@ -74,16 +74,16 @@ export default function PersonCard({ person, summary, onEdit, onDelete, onViewDe
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-btn bg-bg p-2">
               <div className="text-xs text-ink-secondary">送出</div>
-              <div className="text-sm font-bold text-danger">{fmt(summary.total_out)}</div>
+              <div className="text-sm font-bold text-danger">{formatFen(summary.total_out)}</div>
             </div>
             <div className="rounded-btn bg-bg p-2">
               <div className="text-xs text-ink-secondary">收到</div>
-              <div className="text-sm font-bold text-success">{fmt(summary.total_in)}</div>
+              <div className="text-sm font-bold text-success">{formatFen(summary.total_in)}</div>
             </div>
             <div className="rounded-btn bg-bg p-2">
               <div className="text-xs text-ink-secondary">净差额</div>
               <div className={`text-sm font-bold ${summary.net >= 0 ? 'text-success' : 'text-danger'}`}>
-                {fmt(summary.net)}
+                {formatFen(summary.net)}
               </div>
             </div>
           </div>

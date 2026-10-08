@@ -5,6 +5,7 @@ import ConfirmDialog from './ConfirmDialog'
 import type { GbRecord } from '../types'
 import { useDeletedRecords, useRestoreGbRecord, usePaymentAccounts } from '../hooks/useQueries'
 import { useAppStore } from '../store/appStore'
+import { formatFen } from '../lib/format'
 
 /**
  * 删除记录面板（回收站）
@@ -20,8 +21,7 @@ export default function DeletedRecordsPanel({ guestbookId }: { guestbookId: numb
   const [restoreTarget, setRestoreTarget] = useState<GbRecord | null>(null)
   const [restoreRemark, setRestoreRemark] = useState('')
 
-  const fmt = (fen: number) => `¥${(fen / 100).toFixed(2)}`
-
+  
   const handleRestore = () => {
     if (!restoreTarget?.id) return
     restoreMutation.mutate(
@@ -76,7 +76,7 @@ export default function DeletedRecordsPanel({ guestbookId }: { guestbookId: numb
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-lg font-bold text-ink-secondary line-through">{fmt(r.amount)}</span>
+                <span className="text-lg font-bold text-ink-secondary line-through">{formatFen(r.amount)}</span>
                 <button
                   onClick={() => { setRestoreTarget(r); setRestoreRemark('') }}
                   className="rounded-btn border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"

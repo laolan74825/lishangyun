@@ -4,6 +4,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { MonthlyTrendItem } from '../../types'
+import { formatFen } from '../../lib/format'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -41,7 +42,7 @@ export default function MonthlyTrendChart({ data }: Props) {
           const header = ps.axisValue ? `${ps.axisValue}<br/>` : ''
           return (
             header +
-            ps.map((p) => `${p.marker} ${p.seriesName}：¥${(p.value / 100).toFixed(2)}`).join('<br/>')
+            ps.map((p) => `${p.marker} ${p.seriesName}：${formatFen(p.value as number)}`).join('<br/>')
           )
         },
       },
