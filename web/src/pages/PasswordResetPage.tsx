@@ -154,7 +154,7 @@ export default function PasswordResetPage() {
                   }}
                   required
                   autoFocus
-                  className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
                   placeholder="请输入用户名"
                 />
                 <button
@@ -214,7 +214,7 @@ export default function PasswordResetPage() {
                   required
                   maxLength={6}
                   autoFocus
-                  className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-ink outline-none focus:border-primary"
                   placeholder="请输入验证码"
                 />
                 <button

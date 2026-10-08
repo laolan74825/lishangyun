@@ -256,7 +256,7 @@ export default function LoginPage() {
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   aria-label="主安全邮箱验证码"
-                  className={`flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code1' ? 'border-danger' : 'border-line'}`}
+                  className={`min-w-0 flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code1' ? 'border-danger' : 'border-line'}`}
                   placeholder="验证码"
                 />
                 <button
@@ -297,7 +297,7 @@ export default function LoginPage() {
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     aria-label="备用安全邮箱验证码"
-                    className={`flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code2' ? 'border-danger' : 'border-line'}`}
+                    className={`min-w-0 flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code2' ? 'border-danger' : 'border-line'}`}
                     placeholder="验证码"
                   />
                   <button
