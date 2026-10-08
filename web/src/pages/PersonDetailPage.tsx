@@ -200,17 +200,17 @@ export default function PersonDetailPage() {
 
         {/* 收支汇总 */}
         <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-card bg-card p-4 shadow-card">
+          <div className="min-w-0 rounded-card bg-card p-4 shadow-card">
             <p className="text-caption text-ink-secondary">送出去</p>
-            <p className="mt-1 text-2xl font-bold text-danger">¥{formatAmount(totalOut)}</p>
+            <p className="mt-1 break-all text-lg font-bold text-danger sm:text-2xl">¥{formatAmount(totalOut)}</p>
           </div>
-          <div className="rounded-card bg-card p-4 shadow-card">
+          <div className="min-w-0 rounded-card bg-card p-4 shadow-card">
             <p className="text-caption text-ink-secondary">收进来</p>
-            <p className="mt-1 text-2xl font-bold text-success">¥{formatAmount(totalIn)}</p>
+            <p className="mt-1 break-all text-lg font-bold text-success sm:text-2xl">¥{formatAmount(totalIn)}</p>
           </div>
-          <div className="rounded-card bg-card p-4 shadow-card">
+          <div className="min-w-0 rounded-card bg-card p-4 shadow-card">
             <p className="text-caption text-ink-secondary">净差额</p>
-            <p className={`mt-1 text-2xl font-bold ${net >= 0 ? 'text-success' : 'text-danger'}`}>
+            <p className={`mt-1 break-all text-lg font-bold sm:text-2xl ${net >= 0 ? 'text-success' : 'text-danger'}`}>
               {net >= 0 ? '+' : ''}¥{formatAmount(net)}
             </p>
           </div>
