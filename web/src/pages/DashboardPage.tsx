@@ -18,11 +18,6 @@ import {
   useRejectCollaborationInvite,
 } from '../hooks/useQueries'
 
-const thisMonthStart = dayjs().startOf('month').format('YYYY-MM-DD')
-const thisMonthEnd = dayjs().endOf('month').format('YYYY-MM-DD')
-const thisYearStart = dayjs().startOf('year').format('YYYY-MM-DD')
-const thisYearEnd = dayjs().endOf('year').format('YYYY-MM-DD')
-
 function ActiveGuestbookItem({ gb }: { gb: Guestbook }) {
   const { data: summary } = useGuestbookSummary(gb.id!)
   const pct = summary && summary.total_records > 0
@@ -49,7 +44,7 @@ function ActiveGuestbookItem({ gb }: { gb: Guestbook }) {
           {gb.event_type} · {gb.event_date}
           {summary && (
             <span className="ml-2">
-              · {summary.total_records} 笔 ¥{(summary.total_amount / 100).toFixed(0)}
+              · {summary.total_records} 笔 {formatFen(summary.total_amount)}
             </span>
           )}
         </div>
@@ -98,7 +93,7 @@ function RecentGuestbookRecords({ gb }: { gb: Guestbook }) {
                 {r.payment_method === 'cash' ? '现金' : r.payment_method === 'wechat' ? '微信' : '其他'}
               </span>
             </div>
-            <span className="font-bold text-ink">¥{(r.amount / 100).toFixed(2)}</span>
+            <span className="font-bold text-ink">{formatFen(r.amount)}</span>
           </li>
         ))}
       </ul>
@@ -122,11 +117,14 @@ function PendingInvitesBanner() {
   const [acceptingId, setAcceptingId] = useState<number | null>(null)
   const [rejectTarget, setRejectTarget] = useState<CollaborationInvitePending | null>(null)
   const [now, setNow] = useState(() => dayjs())
+  const hasInvites = invites.length > 0
 
+  // 只有存在邀请时才需要每秒刷新倒计时，避免空转重渲染
   useEffect(() => {
+    if (!hasInvites) return
     const timer = setInterval(() => setNow(dayjs()), 1000)
     return () => clearInterval(timer)
-  }, [])
+  }, [hasInvites])
 
   if (invites.length === 0) return null
 
@@ -192,6 +190,8 @@ function PendingInvitesBanner() {
                   }
                   placeholder="输入 6 位邀请码"
                   inputMode="numeric"
+                  aria-label="6 位邀请码"
+                  autoComplete="one-time-code"
                   className="h-10 w-40 rounded-btn border border-line bg-card px-3 text-center font-mono text-base tracking-widest outline-none focus:border-2 focus:border-primary"
                 />
                 <button
@@ -247,8 +247,21 @@ function PendingInvitesBanner() {
 /** 首页 / 礼簿总览仪表板（需求 §6 首页） */
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const monthlyFilters = useMemo(() => ({ startDate: thisMonthStart, endDate: thisMonthEnd }), [])
-  const yearlyFilters = useMemo(() => ({ startDate: thisYearStart, endDate: thisYearEnd }), [])
+  // 日期边界在组件内按渲染时计算：模块级常量会让常驻标签页跨月/跨年后统计错位
+  const monthlyFilters = useMemo(
+    () => ({
+      startDate: dayjs().startOf('month').format('YYYY-MM-DD'),
+      endDate: dayjs().endOf('month').format('YYYY-MM-DD'),
+    }),
+    [],
+  )
+  const yearlyFilters = useMemo(
+    () => ({
+      startDate: dayjs().startOf('year').format('YYYY-MM-DD'),
+      endDate: dayjs().endOf('year').format('YYYY-MM-DD'),
+    }),
+    [],
+  )
   const recentDailyFilters = useMemo(() => ({ limit: 5 }), [])
 
   const { data: monthSum } = useStatsOverview(monthlyFilters)
@@ -257,8 +270,6 @@ export default function DashboardPage() {
   const { data: totalSum } = useStatsOverview({})
   const { data: allGuestbooks = [], isLoading: gbLoading } = useGuestbooks()
   const { data: recentDaily = [], isLoading: dailyLoading } = useDailyRecords(recentDailyFilters)
-
-  const loading = gbLoading || dailyLoading
 
   const activeGuestbooks = useMemo(
     () => allGuestbooks.filter((g) => g.status === 'active').slice(0, 3),
@@ -278,20 +289,19 @@ export default function DashboardPage() {
     <PageScaffold title="欢迎回来" description="您的礼金往来总览">
       <div className="flex flex-col gap-5">
         <PendingInvitesBanner />
-        {loading ? (
-        <p className="py-10 text-center text-ink-secondary">加载中…</p>
-      ) : (
         <div className="flex flex-col gap-5">
-          {/* ===== 本月收支卡片 ===== */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* ===== 本月收支卡片（各自独立加载，互不阻塞） ===== */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {[
-              { label: '本月送出', value: monthly.total_out, color: 'text-danger' },
-              { label: '本月收到', value: monthly.total_in, color: 'text-success' },
-              { label: '净差额', value: monthly.net, color: monthly.net >= 0 ? 'text-success' : 'text-danger' }
+              { label: '本月送出', value: monthly.total_out, color: 'text-danger', ready: !!monthSum },
+              { label: '本月收到', value: monthly.total_in, color: 'text-success', ready: !!monthSum },
+              { label: '净差额', value: monthly.net, color: monthly.net >= 0 ? 'text-success' : 'text-danger', ready: !!monthSum }
             ].map((card) => (
               <div key={card.label} className="min-w-0 rounded-card bg-card p-5 shadow-card">
                 <div className="text-caption text-ink-secondary">{card.label}</div>
-                <div className={`mt-2 break-all text-2xl font-bold xl:text-amount ${card.color}`}>{formatFen(card.value)}</div>
+                <div className={`mt-2 break-all text-2xl font-bold xl:text-amount ${card.color}`}>
+                  {card.ready ? formatFen(card.value) : '—'}
+                </div>
               </div>
             ))}
           </div>
@@ -355,10 +365,18 @@ export default function DashboardPage() {
                   查看全部 →
                 </Link>
               </div>
-              {activeGuestbooks.length === 0 ? (
-                <p className="mt-4 py-4 text-center text-sm text-ink-secondary">
-                  暂无进行中的礼簿
-                </p>
+              {gbLoading ? (
+                <p className="mt-4 py-4 text-center text-sm text-ink-secondary">加载中…</p>
+              ) : activeGuestbooks.length === 0 ? (
+                <div className="mt-4 flex flex-col items-center gap-3 py-4">
+                  <p className="text-center text-sm text-ink-secondary">暂无进行中的礼簿</p>
+                  <Link
+                    to="/guestbooks/new"
+                    className="rounded-btn border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5"
+                  >
+                    ＋ 新建礼簿
+                  </Link>
+                </div>
               ) : (
                 <ul className="mt-3 flex flex-col gap-3">
                   {activeGuestbooks.map((gb) => (
@@ -376,10 +394,18 @@ export default function DashboardPage() {
                   查看全部 →
                 </Link>
               </div>
-              {recentDaily.length === 0 ? (
-                <p className="mt-4 py-4 text-center text-sm text-ink-secondary">
-                  暂无记录，点击「记一笔」开始
-                </p>
+              {dailyLoading ? (
+                <p className="mt-4 py-4 text-center text-sm text-ink-secondary">加载中…</p>
+              ) : recentDaily.length === 0 ? (
+                <div className="mt-4 flex flex-col items-center gap-3 py-4">
+                  <p className="text-center text-sm text-ink-secondary">暂无记录</p>
+                  <Link
+                    to="/records/new"
+                    className="rounded-btn border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5"
+                  >
+                    ＋ 记一笔
+                  </Link>
+                </div>
               ) : (
                 <ul className="mt-3 flex flex-col gap-2">
                   {recentDaily.map((r) => (
@@ -405,7 +431,7 @@ export default function DashboardPage() {
                           r.type === 'out' ? 'text-danger' : 'text-success'
                         }`}
                       >
-                        {r.type === 'out' ? '-' : '+'}¥{(r.amount / 100).toFixed(2)}
+                        {r.type === 'out' ? '-' : '+'}{formatFen(r.amount)}
                       </span>
                     </li>
                   ))}
@@ -440,6 +466,7 @@ export default function DashboardPage() {
                       </Link>
                       <button
                         className="rounded-btn border border-info px-3 py-1.5 text-xs font-medium text-info hover:bg-info/10"
+                        aria-label="将礼簿记录合并关联到人员库"
                         title="将礼簿记录合并关联到人员库"
                         onClick={() => navigate({ to: '/guestbooks/$id/merge', params: { id: String(gb.id) } })}
                       >
@@ -455,7 +482,6 @@ export default function DashboardPage() {
           {/* ===== 最近礼簿收礼（如果有进行中的礼簿） ===== */}
           {firstActiveGb && <RecentGuestbookRecords gb={firstActiveGb} />}
         </div>
-          )}
       </div>
     </PageScaffold>
   )
