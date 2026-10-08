@@ -243,7 +243,8 @@ async def monthly_trend(
     月份集合取三种来源的并集，避免只有单边数据的月份整条缺失。
     """
     daily_month = func.date_trunc("month", DailyRecord.event_date)
-    gb_month = func.date_trunc("month", GbRecord.record_time)
+    # 礼簿收礼按所属礼簿的宴席日期归属月份（数据里的时间），而非录入时间
+    gb_month = func.date_trunc("month", Guestbook.event_date)
 
     daily_sent_q = (
         select(
@@ -278,6 +279,7 @@ async def monthly_trend(
             gb_month.label("m"),
             func.coalesce(func.sum(GbRecord.amount), 0).label("total"),
         )
+        .join(Guestbook, GbRecord.guestbook_id == Guestbook.id)
         .where(
             GbRecord.owner_id == current_user.id,
             GbRecord.is_deleted == False,

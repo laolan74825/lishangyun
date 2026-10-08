@@ -1,6 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.models.daily_record import DailyRecord
+from app.models.guestbook import Guestbook
 from app.models.person import Person
 
 
@@ -247,13 +248,20 @@ class TestMonthlyTrend:
         assert current["sent"] == 0
 
     async def test_trend_merges_daily_and_gb(self, client, admin_headers, db_session):
+        import datetime
+        today_date = datetime.date.today()
         gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        # 宴席日期设为今天，礼簿收礼与日常收落在同一个月
+        await db_session.execute(
+            update(Guestbook).where(Guestbook.id == gb_id).values(event_date=today_date)
+        )
+        await db_session.commit()
         client.post(f"/api/guestbooks/{gb_id}/records", json={
             "guest_name": "张三",
             "amount": 50000,
             "payment_method": "cash",
         }, headers=admin_headers)
-        today = __import__("datetime").date.today().isoformat()
+        today = today_date.isoformat()
         client.post("/api/daily-records/", json={
             "type": "in",
             "person_name": "李四",
@@ -271,6 +279,35 @@ class TestMonthlyTrend:
         resp = client.get("/api/stats/monthly-trend", headers=admin_headers)
         assert resp.status_code == 200
         assert resp.json() == []
+
+    async def test_trend_gb_record_groups_by_event_date_not_record_time(self, client, admin_headers, db_session):
+        """礼簿收礼按宴席日期归属月份：今天录入、宴席在上月，应计入上月而非本月"""
+        import datetime
+        today = datetime.date.today()
+        # 上个月同一天作为宴席日期（1 号则退回上上个月最后一天，保证跨月）
+        first_of_this = today.replace(day=1)
+        last_month_day = first_of_this - datetime.timedelta(days=1)
+        gb_id = _create_guestbook(client, admin_headers).json()["id"]
+        # 修正宴席日期为上个月
+        await db_session.execute(
+            update(Guestbook).where(Guestbook.id == gb_id).values(event_date=last_month_day)
+        )
+        await db_session.commit()
+
+        client.post(f"/api/guestbooks/{gb_id}/records", json={
+            "guest_name": "张三",
+            "amount": 50000,
+            "payment_method": "cash",
+        }, headers=admin_headers)
+
+        data = client.get("/api/stats/monthly-trend", headers=admin_headers).json()
+        target = f"{last_month_day.year:04d}-{last_month_day.month:02d}"
+        this_month = f"{today.year:04d}-{today.month:02d}"
+        month_map = {m["month"]: m for m in data}
+        # 计入宴席日期所在月
+        assert month_map[target]["received"] == 50000
+        # 不计入录入时间所在月（本月无其他数据）
+        assert this_month not in month_map or month_map[this_month]["received"] == 0
 
 
 class TestEventDistribution:
