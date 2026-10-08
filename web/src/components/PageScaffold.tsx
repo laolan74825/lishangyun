@@ -17,8 +17,9 @@ export default function PageScaffold({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      {/* 窄屏（手机）时标题与操作按钮上下布局，避免按钮组横向顶出屏幕 */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-page-title">{title}</h1>
           {description && <p className="mt-1 text-caption text-ink-secondary">{description}</p>}
         </div>

@@ -237,7 +237,7 @@ export default function PeoplePage() {
       title="人员管理"
       description="管理人员档案，关联日常礼金往来"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowBackfillConfirm(true)}
             disabled={backfillMutation.isPending}

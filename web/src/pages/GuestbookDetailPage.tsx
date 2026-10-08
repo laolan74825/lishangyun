@@ -242,7 +242,7 @@ export default function GuestbookDetailPage() {
       title={guestbook?.name ?? '礼簿详情'}
       description={`${guestbook?.event_type ?? ''} · ${guestbook?.event_date ?? ''}`}
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {guestbook && (
             <ExportButton
               mode="server"

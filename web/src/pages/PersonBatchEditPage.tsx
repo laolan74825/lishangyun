@@ -164,7 +164,7 @@ export default function PersonBatchEditPage() {
       title="人员批量编辑"
       description="表格中直接修改称谓、关系、别名、电话、备注，保存时仅提交修改过的行"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             to="/people"
             className="rounded-btn border border-line px-4 py-2 text-sm font-medium text-ink-secondary hover:border-primary"

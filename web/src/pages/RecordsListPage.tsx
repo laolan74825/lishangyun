@@ -96,7 +96,7 @@ export default function RecordsListPage() {
       title="明细"
       description="全部日常礼金往来记录"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-caption text-ink-secondary">
             共 {summary.total_records} 笔
           </span>
