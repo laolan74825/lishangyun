@@ -377,17 +377,6 @@ export interface EventDistributionItem {
   record_count: number
 }
 
-/** 礼簿统计项 */
-export interface GuestbookStatsItem {
-  guestbook_id: number
-  guestbook_name: string
-  event_type: string
-  event_date: string
-  total_records: number
-  total_amount: number
-  checked_count: number
-}
-
 /** 管理员用户信息（Admin API 返回） */
 export interface AdminUser {
   id: number

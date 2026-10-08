@@ -37,7 +37,6 @@ import type {
   PaginatedResponse,      // 分页响应类型：统一的列表分页数据结构
   MonthlyTrendItem,       // 月度趋势统计项：用于统计页面的月度收支数据
   EventDistributionItem,  // 事由分布统计项：按事由类型分组的统计数据
-  GuestbookStatsItem,     // 礼簿统计项：单个礼簿的汇总统计
   AdminUser,              // 管理员用户类型：后台管理系统的用户信息
   SystemSettings,         // 系统设置类型：全局配置参数
   OperationLog,           // 操作日志类型：审计日志记录
@@ -776,16 +775,8 @@ export function useEventDistribution(direction: 'in' | 'out' = 'in') {
   })
 }
 
-/** 获取礼簿专项统计数据（每个礼簿的详细汇总） */
-export function useGuestbookStats() {
-  return useQuery({
-    queryKey: queryKeys.stats.guestbookStats(),
-    queryFn: () => api.getGuestbookStats(),
-  })
-}
-
 // 重新导出统计类型，供页面组件使用
-export type { MonthlyTrendItem, EventDistributionItem, GuestbookStatsItem }
+export type { MonthlyTrendItem, EventDistributionItem }
 
 /* ========================= 管理后台（Admin）查询 Hooks =========================
  *

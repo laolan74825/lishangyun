@@ -14,7 +14,6 @@ import type {
   FamilyMember,
   GbRecord,
   Guestbook,
-  GuestbookStatsItem,
   MonthlyTrendItem,
   Notification,
   OperationLog,
@@ -812,10 +811,6 @@ export async function getMonthlyTrend(months: number = 12): Promise<MonthlyTrend
 
 export async function getEventDistribution(direction: 'in' | 'out' = 'in'): Promise<EventDistributionItem[]> {
   return api.get<EventDistributionItem[]>(`/stats/event-distribution?type=${direction}`)
-}
-
-export async function getGuestbookStats(): Promise<GuestbookStatsItem[]> {
-  return api.get<GuestbookStatsItem[]>('/stats/guestbook-summary')
 }
 
 /* ========================= 数据导出 ========================= */

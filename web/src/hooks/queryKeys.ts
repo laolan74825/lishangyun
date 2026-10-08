@@ -64,7 +64,6 @@ export const queryKeys = {
     personRanking: (limit: number, sort: string) => [...queryKeys.stats.all, 'ranking', limit, sort] as const,
     monthlyTrend: (months: number) => [...queryKeys.stats.all, 'monthlyTrend', months] as const,
     eventDistribution: (direction: string) => [...queryKeys.stats.all, 'eventDistribution', direction] as const,
-    guestbookStats: () => [...queryKeys.stats.all, 'guestbookStats'] as const,
   },
   admin: {
     all: ['admin'] as const,

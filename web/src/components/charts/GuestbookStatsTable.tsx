@@ -1,16 +1,19 @@
 import { Link } from '@tanstack/react-router'
-import type { GuestbookStatsItem } from '../../types'
+import type { GuestbookSummaryItem } from '../../lib/api-client'
 import { eventTypeLabel } from '../../lib/eventType'
 import { formatFen } from '../../lib/format'
 
 interface Props {
-  data: GuestbookStatsItem[]
+  data: GuestbookSummaryItem[]
 }
 
 export default function GuestbookStatsTable({ data }: Props) {
   if (data.length === 0) {
     return <p className="py-6 text-center text-sm text-ink-secondary">暂无礼簿数据</p>
   }
+
+  // 与旧 /stats/guestbook-summary 口径一致：按礼簿日期倒序
+  const rows = [...data].sort((a, b) => b.event_date.localeCompare(a.event_date))
 
   return (
     <div className="overflow-x-auto">
@@ -26,17 +29,17 @@ export default function GuestbookStatsTable({ data }: Props) {
           </tr>
         </thead>
         <tbody>
-          {data.map((gb) => {
+          {rows.map((gb) => {
             const pct = gb.total_records > 0 ? Math.round((gb.checked_count / gb.total_records) * 100) : 0
             return (
-              <tr key={gb.guestbook_id} className="border-b border-line/50 last:border-0">
+              <tr key={gb.id} className="border-b border-line/50 last:border-0">
                 <td className="py-2.5 pr-3">
                   <Link
                     to="/guestbooks/$id"
-                    params={{ id: String(gb.guestbook_id) }}
+                    params={{ id: String(gb.id) }}
                     className="font-medium text-ink hover:text-primary"
                   >
-                    {gb.guestbook_name}
+                    {gb.name}
                   </Link>
                 </td>
                 <td className="py-2.5 pr-3 text-ink-secondary">{eventTypeLabel(gb.event_type)}</td>

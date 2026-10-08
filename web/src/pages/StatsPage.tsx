@@ -12,7 +12,6 @@ import {
   usePersonRanking,
   useMonthlyTrend,
   useEventDistribution,
-  useGuestbookStats,
   useStatsOverview,
 } from '../hooks/useQueries'
 
@@ -68,7 +67,6 @@ export default function StatsPage() {
   const { data: rankings = [], isLoading: rankLoading } = usePersonRanking(rankLimit, rankSort)
   const { data: monthlyTrend = [], isLoading: trendLoading } = useMonthlyTrend(trendMonths)
   const { data: eventDist = [], isLoading: distLoading } = useEventDistribution(distDirection)
-  const { data: gbStats = [], isLoading: gbStatsLoading } = useGuestbookStats()
 
   // 年度总览：日常随礼 + 礼簿收礼（与首页总览同一口径）
   const yearFilters = useMemo(
@@ -196,18 +194,10 @@ export default function StatsPage() {
           </div>
         </div>
 
-        {/* 礼簿汇总（表格组件） */}
+        {/* 礼簿汇总 + 对账进度（原两张卡片合并，统一走 /guestbooks/summaries 一份数据） */}
         <div className="rounded-card bg-card p-5 shadow-card">
           <h2 className="text-section-title">礼簿汇总</h2>
           <p className="mt-1 text-xs text-ink-secondary">全部礼簿 · 点击礼簿名查看详情</p>
-          <div className="mt-3">
-            {gbStatsLoading ? <CardLoading /> : <GuestbookStatsTable data={gbStats} />}
-          </div>
-        </div>
-
-        {/* 对账进度总览（F-10.8） */}
-        <div className="rounded-card bg-card p-5 shadow-card">
-          <h2 className="text-section-title">对账进度总览</h2>
           {gbSumLoading ? (
             <CardLoading />
           ) : (
@@ -218,26 +208,31 @@ export default function StatsPage() {
               const totalAmount = gbSummaries.reduce((s, gb) => s + gb.total_amount, 0)
               const pct = totalRecords > 0 ? Math.round((totalChecked / totalRecords) * 100) : 0
               return (
-                <div className="mt-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-ink-secondary">
-                      已对账 <span className="font-bold text-success">{totalChecked}</span> / {totalRecords} 笔
-                      <span className="ml-2 text-xs">（未对账 {totalRecords - totalChecked} 笔）</span>
-                    </span>
-                    <span className="font-bold text-info">{pct}%</span>
+                <>
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-ink-secondary">
+                        已对账 <span className="font-bold text-success">{totalChecked}</span> / {totalRecords} 笔
+                        <span className="ml-2 text-xs">（未对账 {totalRecords - totalChecked} 笔）</span>
+                      </span>
+                      <span className="font-bold text-info">{pct}%</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-200">
+                      <div
+                        className="h-full rounded-full bg-success transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 text-sm">
+                      <span className="text-ink-secondary">已对账金额：</span>
+                      <span className="font-bold text-success">{formatFen(totalCheckedAmount)}</span>
+                      <span className="text-ink-secondary">/ 共 {formatFen(totalAmount)}</span>
+                    </div>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-200">
-                    <div
-                      className="h-full rounded-full bg-success transition-all"
-                      style={{ width: `${pct}%` }}
-                    />
+                  <div className="mt-3 border-t border-line pt-3">
+                    <GuestbookStatsTable data={gbSummaries} />
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-sm">
-                    <span className="text-ink-secondary">已对账金额：</span>
-                    <span className="font-bold text-success">{formatFen(totalCheckedAmount)}</span>
-                    <span className="text-ink-secondary">/ 共 {formatFen(totalAmount)}</span>
-                  </div>
-                </div>
+                </>
               )
             })()
           )}
