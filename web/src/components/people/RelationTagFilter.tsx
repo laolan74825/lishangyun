@@ -35,9 +35,8 @@ export default function RelationTagFilter({ value, onChange, counts, extraTags =
   )
 
   return (
-    // min-w-0 必需：父级是纵向 flex 容器时，flex 子项默认 min-width:auto = min-content，
-    // 横向滚动条会被内部 shrink-0 芯片撑开，导致整页横向溢出
-    <div className="flex min-w-0 gap-2 overflow-x-auto pb-2">
+    // 窄屏直接换行，不做横向滚动（产品要求页面无横向滚动）
+    <div className="flex flex-wrap gap-2">
       {renderButton('all', '全部')}
       {tags.map((tag) => renderButton(tag, tag))}
     </div>

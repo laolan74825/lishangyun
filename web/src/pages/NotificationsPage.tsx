@@ -121,7 +121,7 @@ export default function NotificationsPage() {
               未读
             </button>
           </div>
-          <div className="flex min-w-0 gap-1 overflow-x-auto">
+          <div className="flex flex-wrap gap-1">
             {typeFilters.map((f) => (
               <button
                 key={f.key}
