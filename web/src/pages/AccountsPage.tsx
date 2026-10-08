@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import dayjs from 'dayjs'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
@@ -14,6 +15,109 @@ import { wechatRemainingLimit } from '../lib/api-client'
 
 // 微信账户默认每日限额：20万元 = 20,000,000 分
 const DEFAULT_WECHAT_LIMIT = 20_000_000 // 20万 = 20,000,000 分
+
+interface AccountCardProps {
+  a: PaymentAccount
+  /** 今日剩余额度（分），仅未停用微信账户有值；查询失败时为 undefined */
+  remaining?: number
+  onEdit: (a: PaymentAccount) => void
+  onToggleDisabled: (a: PaymentAccount) => void
+  onSetActive: (id: number) => void
+  onDelete: (id: number) => void
+}
+
+/**
+ * 账户卡片。
+ * 注意：必须是组件外的稳定组件类型——定义在页面组件内部会导致
+ * 每次渲染重建所有卡片的 DOM 子树。
+ */
+function AccountCard({ a, remaining, onEdit, onToggleDisabled, onSetActive, onDelete }: AccountCardProps) {
+  return (
+    <div className={`flex flex-col gap-3 rounded-card p-5 shadow-card ${a.is_disabled ? 'bg-gray-50' : 'bg-card'}`}>
+      {/* 账户名称和操作按钮 */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2">
+          {/* 账户类型图标：💵 收银员，💚 微信 */}
+          <span className="text-2xl">{a.type === 'cash' ? '💵' : '💚'}</span>
+          <div>
+            <h3 className={`font-bold ${a.is_disabled ? 'text-ink-secondary' : 'text-ink'}`}>{a.name}</h3>
+            <p className="text-xs text-ink-secondary">
+              {a.type === 'cash' ? '收银员' : '微信账户'}
+              {a.is_active && ' · 默认'}
+              {a.is_disabled && ' · 已停用'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          {/* 编辑、停用/启用和删除按钮 */}
+          <div className="flex gap-1">
+            <button
+              onClick={() => onEdit(a)}
+              className="rounded-btn px-3 py-1.5 text-xs font-medium text-info hover:bg-info/10"
+            >
+              编辑
+            </button>
+            <button
+              onClick={() => onToggleDisabled(a)}
+              className="rounded-btn px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-bg"
+            >
+              {a.is_disabled ? '启用' : '停用'}
+            </button>
+            <button
+              onClick={() => onDelete(a.id!)}
+              className="rounded-btn px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-bg"
+            >
+              删除
+            </button>
+          </div>
+          {/* 设为默认账户的单选按钮 */}
+          {/* 同一类型的账户共享一个 name，确保只能选中一个；停用账户不可设为默认 */}
+          <label className={`flex items-center gap-1.5 ${a.is_disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+            <input
+              type="radio"
+              name={`account-${a.type}`}  // 按类型分组
+              checked={a.is_active}  // 是否当前激活
+              disabled={a.is_disabled}  // 停用账户不能设为默认
+              onChange={() => onSetActive(a.id!)}
+              className="h-4 w-4 accent-primary"
+            />
+            <span className="text-xs text-ink-secondary">设为默认值</span>
+          </label>
+        </div>
+      </div>
+
+      {/* 微信账户特有信息：限额和二维码 */}
+      {a.type === 'wechat' && (
+        <>
+          {/* 每日限额和剩余额度 */}
+          <div className="flex items-center gap-4 text-sm">
+            <div>
+              <span className="text-ink-secondary">每日限额：</span>
+              <span className="font-medium text-ink">¥{(a.daily_limit / 100).toFixed(0)}</span>
+            </div>
+            {/* 剩余额度：对所有未停用的微信账户显示（非默认账户也可收款，需要关注额度） */}
+            {!a.is_disabled && remaining !== undefined && (
+              <div>
+                <span className="text-ink-secondary">剩余额度：</span>
+                {/* 剩余额度 ≤ 200元时显示红色警告 */}
+                <span className={`font-medium ${remaining <= 20000 ? 'text-danger' : 'text-ink'}`}>
+                  ¥{(remaining / 100).toFixed(0)}
+                </span>
+              </div>
+            )}
+          </div>
+          {/* 收款二维码预览 */}
+          {a.qr_code && (
+            <div className="flex items-center gap-3">
+              <img src={a.qr_code} alt="收款码" className="h-16 w-16 rounded-lg object-contain" />
+              <span className="text-xs text-ink-secondary">已上传收款二维码</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
 
 /**
  * 账户管理页：管理系统账户（收银员和微信账户）
@@ -35,18 +139,29 @@ export default function AccountsPage() {
 
   // 加载每个未停用微信账户的今日剩余额度
   // 非默认但未停用的账户也可收款，需要同样关注额度
+  // 单账户查询失败不影响其他账户；accounts 变化时用请求序号丢弃过期响应
+  const remainingReqIdRef = useRef(0)
   useEffect(() => {
+    const reqId = ++remainingReqIdRef.current
     const enabledWechatAccounts = accounts.filter((a) => a.type === 'wechat' && !a.is_disabled)
-    if (enabledWechatAccounts.length === 0) return
-    const today = new Date().toISOString().slice(0, 10)  // YYYY-MM-DD 格式
+    if (enabledWechatAccounts.length === 0) {
+      setRemainingMap(new Map())
+      return
+    }
+    const today = dayjs().format('YYYY-MM-DD')  // 本地时区，与后端"今日"口径一致
     const map = new Map<number, number>()
     // 并行查询每个未停用微信账户的今日已收款金额
     Promise.all(
       enabledWechatAccounts.map(async (a) => {
-        const remaining = await wechatRemainingLimit(a, today)
-        map.set(a.id!, remaining)
+        try {
+          map.set(a.id!, await wechatRemainingLimit(a, today))
+        } catch {
+          // 单个账户额度查询失败：该账户不显示剩余额度，不影响其他账户
+        }
       })
-    ).then(() => setRemainingMap(new Map(map)))
+    ).then(() => {
+      if (remainingReqIdRef.current === reqId) setRemainingMap(new Map(map))
+    })
   }, [accounts])
 
   /* ========== 表单弹窗状态 ========== */
@@ -78,7 +193,7 @@ export default function AccountsPage() {
     setEditingId(null)  // null 表示新建模式
     setFormType(type)
     setFormName('')
-    // 微信账户默认限额 200000万元，现金账户不需要限额
+    // 微信账户默认限额 20 万元，现金账户不需要限额
     setFormLimit(type === 'wechat' ? (DEFAULT_WECHAT_LIMIT / 100).toString() : '')
     setFormQrCode('')
     setFormActive(true)  // 新建账户默认激活
@@ -98,7 +213,7 @@ export default function AccountsPage() {
   }
 
   // 提交表单（新建或更新账户）
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     // 验证必填字段
     if (!formName.trim()) {
       showToast('请填写名称')
@@ -125,22 +240,11 @@ export default function AccountsPage() {
 
     if (editingId != null) {
       // 更新模式
+      // 后端会自动互斥：激活一个账户时停用同类型其他账户（payment_accounts.py），前端无需重复处理
       updateMutation.mutate(
         { id: editingId, changes: payload },
         {
-          onSuccess: async () => {
-            // 注意：后端已自动处理"激活一个账户时停用同类型其他账户"的逻辑
-            // 这里的前端循环停用逻辑是冗余的，但保留作为防御性编程
-            // 如果将该账户设为激活，停用同类型的其他激活账户
-            if (formActive) {
-              const others = accounts.filter((a) => a.type === formType && a.id !== editingId && a.is_active)
-              for (const other of others) {
-                await updateMutation.mutateAsync({
-                  id: other.id!,
-                  changes: { ...other, is_active: false },
-                })
-              }
-            }
+          onSuccess: () => {
             showToast('账户已更新')
             setShowForm(false)
           },
@@ -150,18 +254,7 @@ export default function AccountsPage() {
     } else {
       // 新建模式：新建账户均为启用状态（编辑分支不发送 is_disabled，避免误启用已停用的账户）
       createMutation.mutate({ ...payload, is_disabled: false }, {
-        onSuccess: async () => {
-          // 同上，后端已自动处理，这里作为防御性编程
-          // 如果新建账户为激活状态，停用同类型的所有激活账户
-          if (payload.is_active) {
-            const others = accounts.filter((a) => a.type === formType && a.is_active)
-            for (const other of others) {
-              await updateMutation.mutateAsync({
-                id: other.id!,
-                changes: { ...other, is_active: false },
-              })
-            }
-          }
+        onSuccess: () => {
           showToast('账户已创建')
           setShowForm(false)
         },
@@ -226,91 +319,6 @@ export default function AccountsPage() {
   }
 
   // 账户卡片组件：显示单个账户的信息和操作按钮
-  const AccountCard = ({ a }: { a: PaymentAccount }) => (
-    <div className={`flex flex-col gap-3 rounded-card p-5 shadow-card ${a.is_disabled ? 'bg-gray-50' : 'bg-card'}`}>
-      {/* 账户名称和操作按钮 */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          {/* 账户类型图标：💵 收银员，💚 微信 */}
-          <span className="text-2xl">{a.type === 'cash' ? '💵' : '💚'}</span>
-          <div>
-            <h3 className={`font-bold ${a.is_disabled ? 'text-ink-secondary' : 'text-ink'}`}>{a.name}</h3>
-            <p className="text-xs text-ink-secondary">
-              {a.type === 'cash' ? '收银员' : '微信账户'}
-              {a.is_active && ' · 默认'}
-              {a.is_disabled && ' · 已停用'}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          {/* 编辑、停用/启用和删除按钮 */}
-          <div className="flex gap-1">
-            <button
-              onClick={() => openEdit(a)}
-              className="rounded-btn px-3 py-1.5 text-xs font-medium text-info hover:bg-info/10"
-            >
-              编辑
-            </button>
-            <button
-              onClick={() => handleToggleDisabled(a)}
-              className="rounded-btn px-3 py-1.5 text-xs font-medium text-ink-secondary hover:bg-bg"
-            >
-              {a.is_disabled ? '启用' : '停用'}
-            </button>
-            <button
-              onClick={() => setDeletingAccountId(a.id!)}
-              className="rounded-btn px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-bg"
-            >
-              删除
-            </button>
-          </div>
-          {/* 设为默认账户的单选按钮 */}
-          {/* 同一类型的账户共享一个 name，确保只能选中一个；停用账户不可设为默认 */}
-          <label className={`flex items-center gap-1.5 ${a.is_disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-            <input
-              type="radio"
-              name={`account-${a.type}`}  // 按类型分组
-              checked={a.is_active}  // 是否当前激活
-              disabled={a.is_disabled}  // 停用账户不能设为默认
-              onChange={() => handleSetActive(a.id!)}
-              className="h-4 w-4 accent-primary"
-            />
-            <span className="text-xs text-ink-secondary">设为默认值</span>
-          </label>
-        </div>
-      </div>
-
-      {/* 微信账户特有信息：限额和二维码 */}
-      {a.type === 'wechat' && (
-        <>
-          {/* 每日限额和剩余额度 */}
-          <div className="flex items-center gap-4 text-sm">
-            <div>
-              <span className="text-ink-secondary">每日限额：</span>
-              <span className="font-medium text-ink">¥{(a.daily_limit / 100).toFixed(0)}</span>
-            </div>
-            {/* 剩余额度：对所有未停用的微信账户显示（非默认账户也可收款，需要关注额度） */}
-            {!a.is_disabled && remainingMap.has(a.id!) && (
-              <div>
-                <span className="text-ink-secondary">剩余额度：</span>
-                {/* 剩余额度 ≤ 200元时显示红色警告 */}
-                <span className={`font-medium ${(remainingMap.get(a.id!) ?? 0) <= 20000 ? 'text-danger' : 'text-ink'}`}>
-                  ¥{((remainingMap.get(a.id!) ?? 0) / 100).toFixed(0)}
-                </span>
-              </div>
-            )}
-          </div>
-          {/* 收款二维码预览 */}
-          {a.qr_code && (
-            <div className="flex items-center gap-3">
-              <img src={a.qr_code} alt="收款码" className="h-16 w-16 rounded-lg object-contain" />
-              <span className="text-xs text-ink-secondary">已上传收款二维码</span>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
 
   return (
     <PageScaffold
@@ -351,11 +359,19 @@ export default function AccountsPage() {
               <span>💵</span> 收银员
             </h2>
             {cashAccounts.length === 0 ? (
-              <p className="rounded-card bg-bg py-6 text-center text-sm text-ink-secondary">暂无收银员</p>
+              <div className="flex flex-col items-center gap-3 rounded-card bg-bg py-6">
+                <p className="text-sm text-ink-secondary">暂无收银员</p>
+                <button
+                  onClick={() => openNew('cash')}
+                  className="rounded-btn border border-line px-4 py-2 text-sm font-medium text-ink hover:border-primary"
+                >
+                  ＋ 新增收银员
+                </button>
+              </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {cashAccounts.map((a) => (
-                  <AccountCard key={a.id} a={a} />
+                  <AccountCard key={a.id} a={a} remaining={remainingMap.get(a.id!)} onEdit={openEdit} onToggleDisabled={handleToggleDisabled} onSetActive={handleSetActive} onDelete={(id) => setDeletingAccountId(id)} />
                 ))}
               </div>
             )}
@@ -367,11 +383,19 @@ export default function AccountsPage() {
               <span>💚</span> 微信账户
             </h2>
             {wechatAccounts.length === 0 ? (
-              <p className="rounded-card bg-bg py-6 text-center text-sm text-ink-secondary">暂无微信账户</p>
+              <div className="flex flex-col items-center gap-3 rounded-card bg-bg py-6">
+                <p className="text-sm text-ink-secondary">暂无微信账户</p>
+                <button
+                  onClick={() => openNew('wechat')}
+                  className="rounded-btn bg-primary px-4 py-2 text-sm font-semibold text-white"
+                >
+                  ＋ 新增微信账户
+                </button>
+              </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {wechatAccounts.map((a) => (
-                  <AccountCard key={a.id} a={a} />
+                  <AccountCard key={a.id} a={a} remaining={remainingMap.get(a.id!)} onEdit={openEdit} onToggleDisabled={handleToggleDisabled} onSetActive={handleSetActive} onDelete={(id) => setDeletingAccountId(id)} />
                 ))}
               </div>
             )}
@@ -410,6 +434,7 @@ export default function AccountsPage() {
             value={formName}
             onChange={(e) => setFormName(e.target.value)}
             placeholder={formType === 'cash' ? '如：张三' : '如：新娘微信'}
+            autoComplete="off"
             className={`h-11 rounded-btn border px-4 text-base outline-none ${isNameDuplicate ? 'border-danger' : 'border-line focus:border-primary'}`}
           />
           {isNameDuplicate && (
@@ -423,12 +448,12 @@ export default function AccountsPage() {
             <span className="text-sm font-medium text-ink">每日限额（元）</span>
             <input
               value={formLimit}
-              onChange={(e) => setFormLimit(e.target.value)}
+              onChange={(e) => setFormLimit(e.target.value.replace(/[^\d.]/g, ''))}
               inputMode="numeric"
-              placeholder="2000000000"
+              placeholder="200000"
               className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
             />
-            <p className="text-xs text-ink-secondary">默认 200000万（2,000,000,000 分）</p>
+            <p className="text-xs text-ink-secondary">默认 20 万元（200000 元）</p>
           </label>
         )}
 
