@@ -1023,5 +1023,7 @@ export function useUnreadNotificationCount() {
     queryFn: () => api.getUnreadNotificationCount(),
     staleTime: 30_000,
     retry: false,
+    // 60s 静默轮询保持角标实时；页面在后台时自动暂停（refetchIntervalInBackground 默认为 false）
+    refetchInterval: 60_000,
   })
 }
