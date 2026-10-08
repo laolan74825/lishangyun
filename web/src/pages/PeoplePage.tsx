@@ -52,6 +52,11 @@ export default function PeoplePage() {
   const [formAliases, setFormAliases] = useState('')
   const [formNote, setFormNote] = useState('')
 
+  /* 关系类别下拉：点开显示全部类别，输入字符时才过滤 */
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false)
+  const [tagFilter, setTagFilter] = useState('')
+  const tagBlurTimer = useRef<number | null>(null)
+
   /* 往来明细展开状态 */
   const [expandedPerson, setExpandedPerson] = useState<string | null>(null)
   const expandedPersonRef = useRef<string | null>(null)
@@ -231,6 +236,10 @@ export default function PeoplePage() {
     return extras
   }, [allPersons])
   const tagOptions = useMemo(() => [...DEFAULT_RELATION_TAGS, ...customTags], [customTags])
+  const filteredTagOptions = useMemo(() => {
+    const kw = tagFilter.trim()
+    return kw ? tagOptions.filter((t) => t.includes(kw)) : tagOptions
+  }, [tagOptions, tagFilter])
 
   return (
     <PageScaffold
@@ -487,23 +496,94 @@ export default function PeoplePage() {
               className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
             />
           </label>
-          <label className="flex flex-col gap-1.5">
+          <div className="relative flex flex-col gap-1.5">
             <span className="text-sm font-medium text-ink">关系类别</span>
-            {/* 可选择默认/已有类别，也可直接输入自定义类别（如「发小」「牌友」） */}
-            <input
-              list="relation-tag-options"
-              value={formTag}
-              onChange={(e) => setFormTag(e.target.value)}
-              placeholder="选择或输入，如：同事、发小"
-              maxLength={20}
-              className="h-11 rounded-btn border border-line px-4 text-sm outline-none focus:border-primary"
-            />
-            <datalist id="relation-tag-options">
-              {tagOptions.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </label>
+            {/* 可选择默认/已有类别，也可直接输入自定义类别（如「发小」「牌友」）；点开显示全部类别，输入字符时才过滤 */}
+            <div className="relative">
+              <input
+                value={formTag}
+                role="combobox"
+                aria-expanded={tagDropdownOpen}
+                aria-controls="relation-tag-listbox"
+                aria-autocomplete="list"
+                onFocus={() => {
+                  if (tagBlurTimer.current) {
+                    window.clearTimeout(tagBlurTimer.current)
+                    tagBlurTimer.current = null
+                  }
+                  setTagFilter('')
+                  setTagDropdownOpen(true)
+                }}
+                onChange={(e) => {
+                  setFormTag(e.target.value)
+                  setTagFilter(e.target.value)
+                  setTagDropdownOpen(true)
+                }}
+                onBlur={() => {
+                  tagBlurTimer.current = window.setTimeout(() => setTagDropdownOpen(false), 150)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setTagDropdownOpen(false)
+                }}
+                placeholder="选择或输入，如：同事、发小"
+                maxLength={20}
+                className="h-11 w-full rounded-btn border border-line px-4 pr-10 text-sm outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label="展开关系类别"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setTagFilter('')
+                  setTagDropdownOpen((v) => !v)
+                }}
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-ink-secondary hover:bg-gray-100"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  className={`h-4 w-4 transition-transform ${tagDropdownOpen ? 'rotate-180' : ''}`}
+                >
+                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {tagDropdownOpen && (
+                <ul
+                  id="relation-tag-listbox"
+                  role="listbox"
+                  className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-btn border border-line bg-white py-1 shadow-lg"
+                >
+                  {filteredTagOptions.length === 0 ? (
+                    <li className="px-4 py-2 text-sm text-ink-secondary">无匹配类别，将保存为自定义类别</li>
+                  ) : (
+                    filteredTagOptions.map((t) => (
+                      <li key={t}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={t === formTag}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            setFormTag(t)
+                            setTagFilter('')
+                            setTagDropdownOpen(false)
+                          }}
+                          className={`block w-full px-4 py-2 text-left text-sm hover:bg-primary/10 ${
+                            t === formTag ? 'bg-primary/5 font-medium text-primary' : 'text-ink'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
 
         <label className="mt-3 flex flex-col gap-1.5">
