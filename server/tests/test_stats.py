@@ -317,6 +317,27 @@ class TestMonthlyTrend:
         assert resp.status_code == 200
         assert resp.json() == []
 
+    async def test_trend_months_returned_in_ascending_order(self, client, admin_headers, db_session):
+        """月份按时间正序返回（图表从左到右），后录入的早期月份排在前面"""
+        import datetime
+        today = datetime.date.today()
+        last_month_day = today.replace(day=1) - datetime.timedelta(days=1)
+        # 先录入本月日常收，再补录上月日常收
+        client.post("/api/daily-records/", json={
+            "type": "in", "person_name": "李四", "amount": 10000,
+            "event_type": "wedding", "event_date": today.isoformat(),
+        }, headers=admin_headers)
+        client.post("/api/daily-records/", json={
+            "type": "in", "person_name": "王五", "amount": 20000,
+            "event_type": "wedding", "event_date": last_month_day.isoformat(),
+        }, headers=admin_headers)
+
+        data = client.get("/api/stats/monthly-trend", headers=admin_headers).json()
+        assert len(data) == 2
+        assert data[0]["month"] < data[1]["month"]
+        assert data[0]["received"] == 20000  # 上月（先展示）
+        assert data[1]["received"] == 10000  # 本月
+
     async def test_trend_gb_record_groups_by_event_date_not_record_time(self, client, admin_headers, db_session):
         """礼簿收礼按宴席日期归属月份：今天录入、宴席在上月，应计入上月而非本月"""
         import datetime

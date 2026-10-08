@@ -296,6 +296,7 @@ async def monthly_trend(
         select(gb_recv_q.c.m),
     ).subquery()
 
+    # 先按月份倒序取最近 N 个月，再反转为时间正序返回（图表按时间从左到右展示）
     result = await db.execute(
         select(
             func.to_char(all_months.c.m, "YYYY-MM").label("month"),
@@ -311,7 +312,7 @@ async def monthly_trend(
 
     return [
         MonthlyTrendItem(month=row.month, received=row.received, sent=row.sent)
-        for row in result.all()
+        for row in reversed(result.all())
     ]
 
 
