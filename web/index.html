@@ -7,6 +7,29 @@
     <meta name="theme-color" content="#E07B3A" />
     <meta name="description" content="礼云随笔 —— 人情往来小账本，随手记下每一份心意" />
     <title>礼云随笔 · 人情往来小账本</title>
+    <!-- 启动错误捕获：旧内核设备上 JS 执行失败时直接白屏且无从查起，
+         这里把启动期错误显示在页面底部红条里，便于诊断 -->
+    <script>
+      (function () {
+        function showBootError(msg) {
+          var el = document.getElementById('__boot-error');
+          if (!el) {
+            el = document.createElement('pre');
+            el.id = '__boot-error';
+            el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:50%;overflow:auto;background:#b00020;color:#fff;padding:12px;font-size:12px;line-height:1.5;z-index:99999;margin:0;white-space:pre-wrap;';
+            document.body.appendChild(el);
+          }
+          el.textContent += msg + '\n';
+        }
+        window.addEventListener('error', function (e) {
+          showBootError('[error] ' + (e.message || e.type) + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e.reason;
+          showBootError('[promise] ' + (r && (r.stack || r.message) || r));
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
