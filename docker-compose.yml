@@ -39,7 +39,8 @@ services:
     working_dir: /app
     # 用 corepack 固定 pnpm 版本，按 pnpm-lock.yaml 精确安装，保证部署可复现。
     # 匿名卷遮蔽宿主机 node_modules，避免把宿主（可能是 Windows）的二进制带进容器。
-    command: sh -c "corepack enable && corepack prepare pnpm@12.8.1 --activate && pnpm install --frozen-lockfile && pnpm run build && cp -r dist/* /static/"
+    # 拷贝前先清空静态卷，避免历史版本的 JS/CSS 残留越积越多。
+    command: sh -c "corepack enable && corepack prepare pnpm@12.8.1 --activate && pnpm install --frozen-lockfile && pnpm run build && find /static -mindepth 1 -delete && cp -r dist/* /static/"
     volumes:
       - ./web:/app
       - /app/node_modules
