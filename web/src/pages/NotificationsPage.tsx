@@ -1,12 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import {
-  listNotifications,
-  markNotificationRead,
-  markAllNotificationsRead,
-  deleteNotification,
-} from '../lib/api-client'
+  useNotificationsList,
+  useMarkNotificationRead,
+  useMarkAllNotificationsRead,
+  useDeleteNotification,
+  useUnreadNotificationCount,
+} from '../hooks/useQueries'
 import type { Notification, NotificationType } from '../types'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -22,39 +23,35 @@ type FilterType = '' | NotificationType
 
 export default function NotificationsPage() {
   const { toast, showToast } = useToast()
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterType>('')
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all')
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const filters: { is_read?: boolean; type?: string } = {}
-      if (readFilter === 'unread') filters.is_read = false
-      if (filter) filters.type = filter
-      const data = await listNotifications(filters)
-      setNotifications(data)
-    } catch { /* ignore */ }
-    finally { setLoading(false) }
-  }, [filter, readFilter])
+  // 共享查询：与铃铛面板/角标联动，筛选切换 30s 内走缓存，60s 静默轮询
+  const { data: notifications = [], isLoading: loading } = useNotificationsList({
+    unreadOnly: readFilter === 'unread',
+    type: filter,
+  })
+  // 未读数直接读共享缓存（顶栏铃铛同一数据源），全部已读后即时归零
+  const { data: unreadData } = useUnreadNotificationCount()
+  const unreadCount = unreadData?.unread_count ?? 0
 
-  useEffect(() => { load() }, [load])
+  const markReadMutation = useMarkNotificationRead()
+  const markAllMutation = useMarkAllNotificationsRead()
+  const deleteMutation = useDeleteNotification()
 
   async function handleMarkRead(n: Notification) {
-    if (n.is_read) return
+    if (n.is_read || markReadMutation.isPending) return
     try {
-      await markNotificationRead(n.id!)
-      setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x))
+      await markReadMutation.mutateAsync(n)
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : '操作失败')
     }
   }
 
   async function handleMarkAllRead() {
+    if (markAllMutation.isPending) return
     try {
-      await markAllNotificationsRead()
-      setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })))
+      await markAllMutation.mutateAsync()
       showToast('已全部标记为已读')
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : '操作失败')
@@ -62,9 +59,9 @@ export default function NotificationsPage() {
   }
 
   async function handleDelete(n: Notification) {
+    if (deleteMutation.isPending) return
     try {
-      await deleteNotification(n.id!)
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id))
+      await deleteMutation.mutateAsync(n)
       showToast('已删除')
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : '删除失败')
@@ -79,8 +76,6 @@ export default function NotificationsPage() {
     { key: 'approval_expired', label: '审批过期' },
     { key: 'family_member_joined', label: '成员加入' },
   ]
-
-  const unreadCount = notifications.filter((n) => !n.is_read).length
 
   return (
     <PageScaffold

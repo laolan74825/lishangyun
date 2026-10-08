@@ -42,6 +42,7 @@ import type {
   OperationLog,           // 操作日志类型：审计日志记录
   ProfileResponse,        // 个人资料响应类型：当前用户的基本信息
   SecurityEmailItem,      // 安全邮箱类型：用于密码重置的备用邮箱
+  Notification,           // 通知类型：审批结果、家庭组动态等站内通知
 } from '../types'
 
 /* ========================= 礼簿（Guestbooks）查询 Hooks =========================
@@ -1039,5 +1040,91 @@ export function useRecentNotifications(enabled: boolean) {
     enabled,
     staleTime: 30_000,
     retry: false,
+  })
+}
+
+/** 通知中心列表（按已读/类型筛选），60s 静默轮询保持实时 */
+export function useNotificationsList(filters: { unreadOnly: boolean; type: string }) {
+  return useQuery({
+    queryKey: queryKeys.notifications.list(filters.unreadOnly ? 'unread' : 'all', filters.type),
+    queryFn: () =>
+      api.listNotifications({
+        is_read: filters.unreadOnly ? false : undefined,
+        type: filters.type || undefined,
+      }),
+    staleTime: 30_000,
+    retry: false,
+    refetchInterval: 60_000,
+  })
+}
+
+/** 同步所有已缓存的通知列表（任意筛选组合） */
+function patchNotificationLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  patch: (list: Notification[]) => Notification[],
+) {
+  queryClient.setQueriesData<Notification[]>(
+    { queryKey: [...queryKeys.notifications.all, 'list'] },
+    (old) => (old ? patch(old) : old),
+  )
+}
+
+/** 同步未读数缓存（铃铛角标与通知中心联动） */
+function patchUnreadCount(
+  queryClient: ReturnType<typeof useQueryClient>,
+  update: (count: number) => number,
+) {
+  queryClient.setQueryData<{ unread_count: number }>(
+    queryKeys.notifications.unreadCount(),
+    (old) => (old ? { unread_count: update(old.unread_count) } : old),
+  )
+}
+
+/** 标记单条已读：同步全部列表缓存、铃铛面板缓存与未读数 */
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (n: Notification) => api.markNotificationRead(n.id!),
+    onSuccess: (_data, n) => {
+      const markRead = (list: Notification[]) =>
+        list.map((x) => (x.id === n.id ? { ...x, is_read: true } : x))
+      patchNotificationLists(queryClient, markRead)
+      queryClient.setQueryData<Notification[]>(queryKeys.notifications.recent(), (old) =>
+        old ? markRead(old) : old,
+      )
+      if (!n.is_read) patchUnreadCount(queryClient, (c) => Math.max(0, c - 1))
+    },
+  })
+}
+
+/** 全部已读：同步全部列表缓存、铃铛面板缓存与未读数 */
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.markAllNotificationsRead(),
+    onSuccess: () => {
+      const markAll = (list: Notification[]) => list.map((x) => ({ ...x, is_read: true }))
+      patchNotificationLists(queryClient, markAll)
+      queryClient.setQueryData<Notification[]>(queryKeys.notifications.recent(), (old) =>
+        old ? markAll(old) : old,
+      )
+      patchUnreadCount(queryClient, () => 0)
+    },
+  })
+}
+
+/** 删除通知：同步全部列表缓存、铃铛面板缓存与未读数 */
+export function useDeleteNotification() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (n: Notification) => api.deleteNotification(n.id!),
+    onSuccess: (_data, n) => {
+      const remove = (list: Notification[]) => list.filter((x) => x.id !== n.id)
+      patchNotificationLists(queryClient, remove)
+      queryClient.setQueryData<Notification[]>(queryKeys.notifications.recent(), (old) =>
+        old ? remove(old) : old,
+      )
+      if (!n.is_read) patchUnreadCount(queryClient, (c) => Math.max(0, c - 1))
+    },
   })
 }

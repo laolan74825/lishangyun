@@ -93,5 +93,8 @@ export const queryKeys = {
     unreadCount: () => [...queryKeys.notifications.all, 'unreadCount'] as const,
     // 铃铛面板最近通知列表（打开面板时才查询）
     recent: () => [...queryKeys.notifications.all, 'recent'] as const,
+    // 通知中心列表（按已读/类型筛选）
+    list: (read: 'all' | 'unread', type: string) =>
+      [...queryKeys.notifications.all, 'list', read, type] as const,
   },
 }
