@@ -82,3 +82,5 @@ docker-data/
 # ========================
 original_photo.jpg
 restored_bw.png
+server.env
+*.bundle
