@@ -19,6 +19,7 @@ from app.models.person_balance_adjustment import PersonBalanceAdjustment
 from app.models.collaboration_invite import CollaborationInvite
 from app.models.authorization_action_log import AuthorizationActionLog
 from app.models.email_verification_code import EmailVerificationCode
+from app.models.phone_verification_code import PhoneVerificationCode
 
 __all__ = [
     "User",
@@ -42,4 +43,5 @@ __all__ = [
     "CollaborationInvite",
     "AuthorizationActionLog",
     "EmailVerificationCode",
+    "PhoneVerificationCode",
 ]

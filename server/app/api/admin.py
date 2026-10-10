@@ -39,6 +39,12 @@ class UpdateSettingsRequest(BaseModel):
     smtp_port: int | None = None
     smtp_user: str | None = None
     smtp_password: str | None = None
+    # 短信服务：mode 为 mock（只记日志，开发联调）或 aliyun（真实发送）
+    sms_mode: str | None = Field(None, pattern="^(mock|aliyun)$")
+    sms_access_key_id: str | None = None
+    sms_access_key_secret: str | None = None
+    sms_sign_name: str | None = None
+    sms_template_code: str | None = None
 
 
 AdminUser = Annotated[User, Depends(require_role("super_admin", "admin"))]
@@ -145,6 +151,8 @@ async def get_settings(db: DbSession, _: AdminUser):
     for row in rows:
         if row.key == "smtp_password_enc":
             result_dict["smtp_password_set"] = bool(row.value)
+        elif row.key == "sms_access_key_secret_enc":
+            result_dict["sms_access_key_secret_set"] = bool(row.value)
         else:
             result_dict[row.key] = row.value
     return result_dict
@@ -172,6 +180,16 @@ async def update_settings(
         await _set("smtp_user", body.smtp_user)
     if body.smtp_password is not None:
         await _set("smtp_password_enc", encrypt_value(body.smtp_password))
+    if body.sms_mode is not None:
+        await _set("sms_mode", body.sms_mode)
+    if body.sms_access_key_id is not None:
+        await _set("sms_access_key_id", body.sms_access_key_id)
+    if body.sms_access_key_secret is not None:
+        await _set("sms_access_key_secret_enc", encrypt_value(body.sms_access_key_secret))
+    if body.sms_sign_name is not None:
+        await _set("sms_sign_name", body.sms_sign_name)
+    if body.sms_template_code is not None:
+        await _set("sms_template_code", body.sms_template_code)
 
     await db.commit()
     return {"message": "已更新"}

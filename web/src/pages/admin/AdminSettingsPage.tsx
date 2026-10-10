@@ -15,16 +15,27 @@ export default function AdminSettingsPage() {
   const [smtpUser, setSmtpUser] = useState('')
   const [smtpPassword, setSmtpPassword] = useState('')
 
+  const [smsMode, setSmsMode] = useState('mock')
+  const [smsAccessKeyId, setSmsAccessKeyId] = useState('')
+  const [smsAccessKeySecret, setSmsAccessKeySecret] = useState('')
+  const [smsSignName, setSmsSignName] = useState('')
+  const [smsTemplateCode, setSmsTemplateCode] = useState('')
+
   useEffect(() => {
     if (settings) {
       setSmtpHost(settings.smtp_host || '')
       setSmtpPort(settings.smtp_port || '465')
       setSmtpUser(settings.smtp_user || '')
       setSmtpPassword('')
+      setSmsMode(settings.sms_mode || 'mock')
+      setSmsAccessKeyId(settings.sms_access_key_id || '')
+      setSmsAccessKeySecret('')
+      setSmsSignName(settings.sms_sign_name || '')
+      setSmsTemplateCode(settings.sms_template_code || '')
     }
   }, [settings])
 
-  const saveMutation = useMutation({
+  const saveSmtpMutation = useMutation({
     mutationFn: () => {
       const payload: Record<string, string | number> = {
         smtp_host: smtpHost,
@@ -38,8 +49,27 @@ export default function AdminSettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.settings() })
-      showToast('配置已保存')
+      showToast('邮件配置已保存')
       setSmtpPassword('')
+    },
+    onError: (err: Error) => {
+      showToast(err.message || '保存失败')
+    },
+  })
+
+  const saveSmsMutation = useMutation({
+    mutationFn: () => {
+      const payload: Record<string, string> = { sms_mode: smsMode }
+      if (smsAccessKeyId) payload.sms_access_key_id = smsAccessKeyId
+      if (smsAccessKeySecret) payload.sms_access_key_secret = smsAccessKeySecret
+      if (smsSignName) payload.sms_sign_name = smsSignName
+      if (smsTemplateCode) payload.sms_template_code = smsTemplateCode
+      return updateSystemSettings(payload)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.settings() })
+      showToast('短信配置已保存')
+      setSmsAccessKeySecret('')
     },
     onError: (err: Error) => {
       showToast(err.message || '保存失败')
@@ -99,11 +129,79 @@ export default function AdminSettingsPage() {
           </label>
 
           <button
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
+            onClick={() => saveSmtpMutation.mutate()}
+            disabled={saveSmtpMutation.isPending}
             className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
           >
-            {saveMutation.isPending ? '保存中…' : '保存配置'}
+            {saveSmtpMutation.isPending ? '保存中…' : '保存邮件配置'}
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-card bg-card p-6 shadow-card">
+        <h2 className="text-section-title">📱 短信服务配置</h2>
+        <p className="mt-1 text-sm text-ink-secondary">
+          用于注册短信验证码发送。Mock 模式不发真实短信（验证码见服务端日志，仅开发联调）；
+          阿里云模式需填写 AccessKey、签名与模板 CODE。
+        </p>
+
+        <div className="mt-4 flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">发送模式</span>
+            <select
+              value={smsMode}
+              onChange={(e) => setSmsMode(e.target.value)}
+              className="h-11 rounded-btn border border-line bg-bg px-4 text-base outline-none focus:border-primary"
+            >
+              <option value="mock">Mock（不实际发送，开发联调）</option>
+              <option value="aliyun">阿里云短信（真实发送）</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">AccessKey ID</span>
+            <input
+              value={smsAccessKeyId}
+              onChange={(e) => setSmsAccessKeyId(e.target.value)}
+              placeholder="阿里云 AccessKey ID"
+              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">AccessKey Secret</span>
+            <input
+              value={smsAccessKeySecret}
+              onChange={(e) => setSmsAccessKeySecret(e.target.value)}
+              type="password"
+              placeholder={settings?.sms_access_key_secret_set ? '已配置，留空保持不变' : '阿里云 AccessKey Secret'}
+              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+            />
+            <span className="text-xs text-ink-secondary">将以 AES-256 加密存储，页面不回显</span>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">短信签名</span>
+            <input
+              value={smsSignName}
+              onChange={(e) => setSmsSignName(e.target.value)}
+              placeholder="如：礼尚云（需与阿里云审核通过的签名一致）"
+              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink">模板 CODE</span>
+            <input
+              value={smsTemplateCode}
+              onChange={(e) => setSmsTemplateCode(e.target.value)}
+              placeholder="如 SMS_123456789（模板须含 ${code} 变量）"
+              className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+            />
+          </label>
+
+          <button
+            onClick={() => saveSmsMutation.mutate()}
+            disabled={saveSmsMutation.isPending}
+            className="mt-1 rounded-btn bg-primary py-2.5 font-semibold text-white disabled:opacity-50"
+          >
+            {saveSmsMutation.isPending ? '保存中…' : '保存短信配置'}
           </button>
         </div>
       </section>

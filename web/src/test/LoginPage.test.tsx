@@ -43,7 +43,7 @@ describe('LoginPage - 首次运行检测', () => {
       expect(screen.getByText('首次运行，请创建系统管理员')).toBeInTheDocument()
     })
 
-    expect(screen.getByPlaceholderText('用于找回密码的主邮箱')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('用于注册和找回账号')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('请再次输入密码')).toBeInTheDocument()
     expect(screen.queryByText('没有账户？立即注册')).not.toBeInTheDocument()
     expect(screen.queryByText('已有账户？返回登录')).not.toBeInTheDocument()
@@ -64,7 +64,7 @@ describe('LoginPage - 首次运行检测', () => {
 
     expect(screen.getByText('没有账户？立即注册')).toBeInTheDocument()
     expect(screen.queryByText('已有账户？返回登录')).not.toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('用于找回密码的主邮箱')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('用于注册和找回账号')).not.toBeInTheDocument()
   })
 })
 
@@ -167,7 +167,7 @@ describe('LoginPage - 登录流程', () => {
 
     await waitFor(() => {
       expect(screen.getByText('创建新账户')).toBeInTheDocument()
-      expect(screen.getByPlaceholderText('用于找回密码的主邮箱')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('用于注册和找回账号')).toBeInTheDocument()
       expect(screen.getByText('已有账户？返回登录')).toBeInTheDocument()
     })
   })
@@ -187,7 +187,7 @@ describe('LoginPage - 登录流程', () => {
 
     await waitFor(() => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
-      expect(screen.queryByPlaceholderText('用于找回密码的主邮箱')).not.toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('用于注册和找回账号')).not.toBeInTheDocument()
     })
   })
 })
@@ -215,12 +215,36 @@ describe('LoginPage - 注册流程', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password456')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
 
     const form = document.querySelector('form')!
     fireEvent.submit(form)
 
     expect(await screen.findByText('两次输入的密码不一致')).toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('注册时手机号格式错误显示错误', async () => {
+    const user = userEvent.setup()
+
+    render(<LoginPage />)
+
+    await user.click(screen.getByText('没有账户？立即注册'))
+
+    await waitFor(() => {
+      expect(screen.getByText('创建新账户')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
+    await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
+    await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '123456')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
+    await user.click(screen.getByRole('checkbox'))
+
+    fireEvent.submit(document.querySelector('form')!)
+
+    expect(await screen.findByText('请输入正确的 11 位手机号')).toBeInTheDocument()
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
@@ -231,7 +255,7 @@ describe('LoginPage - 注册流程', () => {
       http.get('/api/auth/status', () => {
         return HttpResponse.json({ needs_init: true, user_count: 0 })
       }),
-      http.post('/api/auth/send-verification-code', () => {
+      http.post('/api/auth/send-sms-code', () => {
         return HttpResponse.json({ message: 'ok' })
       }),
       http.post('/api/auth/register', () => {
@@ -251,8 +275,8 @@ describe('LoginPage - 注册流程', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'admin')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'admin123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'admin123')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'admin@example.com')
-    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
     await user.click(screen.getByRole('checkbox'))
 
     const form = document.querySelector('form')!
@@ -269,7 +293,7 @@ describe('LoginPage - 注册流程', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post('/api/auth/send-verification-code', () => {
+      http.post('/api/auth/send-sms-code', () => {
         return HttpResponse.json({ message: 'ok' })
       }),
       http.post('/api/auth/register', () => {
@@ -291,8 +315,8 @@ describe('LoginPage - 注册流程', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'user2')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'user123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'user123')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'user2@example.com')
-    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
     await user.click(screen.getByRole('checkbox'))
 
     const form = document.querySelector('form')!
@@ -309,7 +333,7 @@ describe('LoginPage - 注册流程', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post('/api/auth/send-verification-code', () => {
+      http.post('/api/auth/send-sms-code', () => {
         return HttpResponse.json({ message: 'ok' })
       }),
       http.post('/api/auth/register', () => {
@@ -328,8 +352,8 @@ describe('LoginPage - 注册流程', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
-    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
     await user.click(screen.getByRole('checkbox'))
 
     const form = document.querySelector('form')!
@@ -346,7 +370,7 @@ describe('LoginPage - 注册流程', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post('/api/auth/send-verification-code', () => {
+      http.post('/api/auth/send-sms-code', () => {
         return HttpResponse.json({ message: 'ok' })
       }),
       http.post('/api/auth/register', () => {
@@ -365,8 +389,8 @@ describe('LoginPage - 注册流程', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'existinguser')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
-    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
     await user.click(screen.getByRole('checkbox'))
 
     const form = document.querySelector('form')!
@@ -411,15 +435,19 @@ describe('LoginPage - 表单验证', () => {
     const usernameInput = screen.getByPlaceholderText('请输入用户名')
     const passwordInputs = screen.getAllByPlaceholderText('请输入密码')
     const confirmPasswordInput = screen.getByPlaceholderText('请再次输入密码')
-    const emailInput = screen.getByPlaceholderText('用于找回密码的主邮箱')
+    const phoneInput = screen.getByPlaceholderText('用于注册和找回账号')
+    const smsCodeInput = screen.getByPlaceholderText('短信验证码')
+    const emailInput = screen.getByPlaceholderText('用于找回密码，可稍后在设置中绑定')
 
     expect(usernameInput).toBeRequired()
     expect(passwordInputs[0]).toBeRequired()
     expect(confirmPasswordInput).toBeRequired()
-    expect(emailInput).toBeRequired()
+    expect(phoneInput).toBeRequired()
+    expect(smsCodeInput).toBeRequired()
+    expect(emailInput).not.toBeRequired()
   })
 
-  it('备用安全邮箱为选填', async () => {
+  it('安全邮箱为选填', async () => {
     const user = userEvent.setup()
 
     render(<LoginPage />)
@@ -427,7 +455,7 @@ describe('LoginPage - 表单验证', () => {
     await user.click(screen.getByText('没有账户？立即注册'))
 
     await waitFor(() => {
-      const optionalEmailInput = screen.getByPlaceholderText('可选，最多2个安全邮箱')
+      const optionalEmailInput = screen.getByPlaceholderText('用于找回密码，可稍后在设置中绑定')
       expect(optionalEmailInput).not.toBeRequired()
     })
   })
@@ -440,7 +468,7 @@ describe('LoginPage - 表单验证', () => {
     await user.click(screen.getByText('没有账户？立即注册'))
 
     await waitFor(() => {
-      const emailInput = screen.getByPlaceholderText('用于找回密码的主邮箱')
+      const emailInput = screen.getByPlaceholderText('用于找回密码，可稍后在设置中绑定')
       expect(emailInput).toHaveAttribute('type', 'email')
     })
   })
@@ -677,7 +705,7 @@ describe('LoginPage - 注册表单内联错误提示', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post('/api/auth/send-verification-code', () => {
+      http.post('/api/auth/send-sms-code', () => {
         return HttpResponse.json({ message: 'ok' })
       }),
       http.post('/api/auth/register', () => {
@@ -690,8 +718,8 @@ describe('LoginPage - 注册表单内联错误提示', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'existinguser')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
-    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
     await user.click(screen.getByRole('checkbox'))
 
     fireEvent.submit(document.querySelector('form')!)
@@ -709,7 +737,7 @@ describe('LoginPage - 注册表单内联错误提示', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post('/api/auth/send-verification-code', () => {
+      http.post('/api/auth/send-sms-code', () => {
         return HttpResponse.json({ message: 'ok' })
       })
     )
@@ -719,8 +747,8 @@ describe('LoginPage - 注册表单内联错误提示', () => {
     await user.type(screen.getByPlaceholderText('请输入用户名'), 'newuser')
     await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
     await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
-    await user.type(screen.getByPlaceholderText('用于找回密码的主邮箱'), 'test@example.com')
-    await user.type(screen.getByPlaceholderText('验证码'), '123456')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
 
     fireEvent.submit(document.querySelector('form')!)
 
@@ -779,6 +807,6 @@ describe('LoginPage - API 状态检查', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    expect(screen.queryByPlaceholderText('用于找回密码的主邮箱')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('用于注册和找回账号')).not.toBeInTheDocument()
   })
 })

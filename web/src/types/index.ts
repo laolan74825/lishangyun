@@ -406,12 +406,17 @@ export interface AdminUserUpdate {
   nickname?: string
 }
 
-/** 系统设置（SMTP 配置） */
+/** 系统设置（SMTP + 短信服务配置） */
 export interface SystemSettings {
   smtp_host: string
   smtp_port: string
   smtp_user: string
   smtp_password_set: boolean
+  sms_mode: string
+  sms_access_key_id: string
+  sms_access_key_secret_set: boolean
+  sms_sign_name: string
+  sms_template_code: string
 }
 
 /** 安全模式 */

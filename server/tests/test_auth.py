@@ -8,35 +8,35 @@ from app.core.rate_limit import login_attempts
 from app.core.security import hash_password
 from app.core.time import utcnow
 from app.models.email_verification_code import EmailVerificationCode
+from app.models.phone_verification_code import PhoneVerificationCode
 from app.models.operation_log import OperationLog
 from app.models.user import User
 from tests.conftest import TestAsyncSession
 
 
-async def _seed_email_code(email: str, code: str = "123456") -> None:
-    """种入一条未使用、未过期的邮箱验证码，供注册流程校验。
+async def _seed_phone_code(phone: str, code: str = "123456") -> None:
+    """种入一条未使用、未过期的短信验证码，供注册流程校验。
 
     使用独立短会话而非 db_session fixture：fixture 跑在 session 级事件循环，
     连接绑定后不能在测试函数的事件循环里复用（asyncpg 会报
     "another operation is in progress"）。
     """
     async with TestAsyncSession() as session:
-        session.add(EmailVerificationCode(
-            email=email,
+        session.add(PhoneVerificationCode(
+            phone=phone,
             code=code,
             expires_at=utcnow() + timedelta(minutes=10),
         ))
         await session.commit()
 
-
 class TestRegister:
     async def test_new_user_id_uses_year_seq_format(self, client):
-        await _seed_email_code("fmt@test.com")
+        await _seed_phone_code("13800000001")
         resp = client.post("/api/auth/register", json={
             "username": "fmtuser",
             "password": "password123",
-            "security_email_1": "fmt@test.com",
-            "security_email_1_code": "123456",
+            "phone": "13800000001",
+            "phone_code": "123456",
         })
         assert resp.status_code == 200
         uid = resp.json()["user"]["id"]
@@ -44,13 +44,13 @@ class TestRegister:
         assert year * 1_000_000 < uid < (year + 1) * 1_000_000
 
     async def test_first_user_becomes_super_admin(self, client):
-        await _seed_email_code("admin@test.com")
+        await _seed_phone_code("13800000002")
         resp = client.post("/api/auth/register", json={
             "username": "admin",
             "password": "password123",
             "nickname": "管理员",
-            "security_email_1": "admin@test.com",
-            "security_email_1_code": "123456",
+            "phone": "13800000002",
+            "phone_code": "123456",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -59,12 +59,12 @@ class TestRegister:
         assert data["user"]["username"] == "admin"
 
     async def test_second_user_gets_user_role(self, client, super_admin):
-        await _seed_email_code("user2@test.com")
+        await _seed_phone_code("13800000003")
         resp = client.post("/api/auth/register", json={
             "username": "user2",
             "password": "password123",
-            "security_email_1": "user2@test.com",
-            "security_email_1_code": "123456",
+            "phone": "13800000003",
+            "phone_code": "123456",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -85,6 +85,73 @@ class TestRegister:
             "password": "12345",
         })
         assert resp.status_code == 422
+
+    async def test_register_invalid_phone_rejected(self, client):
+        resp = client.post("/api/auth/register", json={
+            "username": "badphone",
+            "password": "password123",
+            "phone": "123456",
+            "phone_code": "123456",
+        })
+        assert resp.status_code == 422
+
+    async def test_register_duplicate_username_rejected(self, client, super_admin):
+        await _seed_phone_code("13800000004")
+        resp = client.post("/api/auth/register", json={
+            "username": "admin",
+            "password": "password123",
+            "phone": "13800000004",
+            "phone_code": "123456",
+        })
+        assert resp.status_code == 409
+        assert "用户名" in resp.json()["detail"]
+
+    async def test_register_duplicate_phone_rejected(self, client):
+        await _seed_phone_code("13800000005")
+        resp = client.post("/api/auth/register", json={
+            "username": "phoneowner",
+            "password": "password123",
+            "phone": "13800000005",
+            "phone_code": "123456",
+        })
+        assert resp.status_code == 200
+        await _seed_phone_code("13800000005")
+        resp = client.post("/api/auth/register", json={
+            "username": "phoneowner2",
+            "password": "password123",
+            "phone": "13800000005",
+            "phone_code": "123456",
+        })
+        assert resp.status_code == 409
+        assert "手机号" in resp.json()["detail"]
+
+    async def test_register_wrong_code_rejected(self, client):
+        await _seed_phone_code("13800000006", code="111111")
+        resp = client.post("/api/auth/register", json={
+            "username": "wrongcode",
+            "password": "password123",
+            "phone": "13800000006",
+            "phone_code": "999999",
+        })
+        assert resp.status_code == 400
+        assert "无效或已过期" in resp.json()["detail"]
+
+    async def test_register_optional_email_stored_unverified(self, client, db_session):
+        await _seed_phone_code("13800000007")
+        resp = client.post("/api/auth/register", json={
+            "username": "withemail",
+            "password": "password123",
+            "phone": "13800000007",
+            "phone_code": "123456",
+            "security_email_1": "Opt@Test.com",
+        })
+        assert resp.status_code == 200
+        from app.models.security_email import SecurityEmail
+        result = await db_session.execute(
+            select(SecurityEmail).where(SecurityEmail.email == "opt@test.com")
+        )
+        row = result.scalar_one_or_none()
+        assert row is not None and row.is_verified == False
 
 
 class TestLogin:
@@ -274,6 +341,40 @@ class TestSendVerificationCode:
         await db_session.commit()
 
     @pytest.fixture()
+    async def sms_mock_settings(self, db_session):
+        from app.models.system_setting import SystemSetting
+
+        db_session.add(SystemSetting(key="sms_mode", value="mock"))
+        await db_session.commit()
+
+    async def test_send_sms_code_mock_mode(self, client, sms_mock_settings, monkeypatch):
+        monkeypatch.setattr("app.api.auth._generate_code", lambda: "654321")
+        resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000200"})
+        assert resp.status_code == 200
+
+        async with TestAsyncSession() as session:
+            result = await session.execute(
+                select(PhoneVerificationCode).where(PhoneVerificationCode.phone == "13800000200")
+            )
+            row = result.scalar_one_or_none()
+        assert row is not None and row.code == "654321"
+
+    async def test_send_sms_code_unconfigured_rejected(self, client):
+        resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000201"})
+        assert resp.status_code == 400
+        assert "未配置" in resp.json()["detail"]
+
+    async def test_send_sms_code_registered_phone_rejected(self, client, db_session, sms_mock_settings):
+        u = User(
+            username="regphone",
+            password_hash=hash_password("password123"),
+            phone="13800000202",
+        )
+        db_session.add(u)
+        await db_session.commit()
+        resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000202"})
+        assert resp.status_code == 409
+    @pytest.fixture()
     def _patch_email_sender(self, monkeypatch):
         monkeypatch.setattr("app.api.auth.send_verification_email", lambda *a, **k: None)
         monkeypatch.setattr("app.api.account.send_verification_email", lambda *a, **k: None)
@@ -314,12 +415,12 @@ class TestSendVerificationCode:
         resp = client.post("/api/account/security-emails/send-code", json={"email": "bind@test.com"})
         assert resp.status_code == 429
 
-    async def test_code_valid_within_10_minutes(self, client, smtp_settings, _patch_email_sender, monkeypatch):
+    async def test_code_valid_within_10_minutes(self, client, sms_mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.auth._generate_code", lambda: "654321")
         fake_now = [utcnow()]
         monkeypatch.setattr("app.api.auth.utcnow", lambda: fake_now[0])
 
-        resp = client.post("/api/auth/send-verification-code", json={"email": "slow@test.com"})
+        resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000100"})
         assert resp.status_code == 200
 
         # 9 分钟后注册仍可用（有效期 10 分钟）
@@ -327,17 +428,17 @@ class TestSendVerificationCode:
         resp = client.post("/api/auth/register", json={
             "username": "slowuser",
             "password": "password123",
-            "security_email_1": "slow@test.com",
-            "security_email_1_code": "654321",
+            "phone": "13800000100",
+            "phone_code": "654321",
         })
         assert resp.status_code == 200
 
-    async def test_code_expires_after_10_minutes(self, client, smtp_settings, _patch_email_sender, monkeypatch):
+    async def test_code_expires_after_10_minutes(self, client, sms_mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.auth._generate_code", lambda: "654321")
         fake_now = [utcnow()]
         monkeypatch.setattr("app.api.auth.utcnow", lambda: fake_now[0])
 
-        resp = client.post("/api/auth/send-verification-code", json={"email": "late@test.com"})
+        resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000101"})
         assert resp.status_code == 200
 
         # 11 分钟后验证码应已过期
@@ -345,8 +446,8 @@ class TestSendVerificationCode:
         resp = client.post("/api/auth/register", json={
             "username": "lateuser",
             "password": "password123",
-            "security_email_1": "late@test.com",
-            "security_email_1_code": "654321",
+            "phone": "13800000101",
+            "phone_code": "654321",
         })
         assert resp.status_code == 400
         assert "无效或已过期" in resp.json()["detail"]

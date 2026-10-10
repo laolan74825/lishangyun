@@ -1324,6 +1324,11 @@ export async function updateSystemSettings(data: {
   smtp_port?: number
   smtp_user?: string
   smtp_password?: string
+  sms_mode?: string
+  sms_access_key_id?: string
+  sms_access_key_secret?: string
+  sms_sign_name?: string
+  sms_template_code?: string
 }): Promise<void> {
   await api.put('/admin/settings', data)
 }

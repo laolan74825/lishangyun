@@ -10,11 +10,13 @@ from sqlalchemy import delete, func, select
 from app.core.crypto import decrypt_value, encrypt_value
 from app.core.dependencies import CurrentUser, DbSession, get_current_user
 from app.core.email_service import send_reset_email, send_verification_email
+from app.core.sms import SmsSendError, send_sms_or_mock
 from app.core.rate_limit import login_attempts
 from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
 from app.core.time import utcnow
 from app.core.user_id import add_user_with_generated_id
 from app.models.email_verification_code import EmailVerificationCode
+from app.models.phone_verification_code import PhoneVerificationCode
 from app.models.reset_code import ResetCode
 from app.models.security_email import SecurityEmail
 from app.models.system_setting import SystemSetting
@@ -29,6 +31,7 @@ from app.schemas.auth import (
     PasswordResetEmailHintRequest,
     PasswordResetRequest,
     RegisterRequest,
+    SendSmsCodeRequest,
     SendVerificationCodeRequest,
     TokenResponse,
     UserInfo,
@@ -57,11 +60,11 @@ def _generate_code() -> str:
     return "".join(str(secrets.randbelow(10)) for _ in range(6))
 
 
-async def _enforce_resend_interval(db: DbSession, model, email: str) -> None:
-    """同一邮箱在节流间隔内只允许发一次验证码；超过间隔则清除旧的未使用验证码。"""
+async def _enforce_resend_interval(db: DbSession, model, target: str, field: str = "email") -> None:
+    """同一目标（邮箱/手机号）在节流间隔内只允许发一次验证码；超过间隔则清除旧的未使用验证码。"""
     result = await db.execute(
         select(model).where(
-            model.email == email,
+            getattr(model, field) == target,
             model.used == False,
             model.expires_at > utcnow(),
         ).order_by(model.created_at.desc())
@@ -73,7 +76,7 @@ async def _enforce_resend_interval(db: DbSession, model, email: str) -> None:
     if elapsed < CODE_RESEND_INTERVAL_SECONDS:
         remaining = int(CODE_RESEND_INTERVAL_SECONDS - elapsed) + 1
         raise HTTPException(status_code=429, detail=f"发送过于频繁，请 {remaining} 秒后再试")
-    await db.execute(delete(model).where(model.email == email, model.used == False))
+    await db.execute(delete(model).where(getattr(model, field) == target, model.used == False))
 
 
 async def _get_smtp_config(db: DbSession) -> tuple[str, int, str, str]:
@@ -86,6 +89,26 @@ async def _get_smtp_config(db: DbSession) -> tuple[str, int, str, str]:
             raise HTTPException(status_code=400, detail="邮件服务未配置，请联系管理员")
         rows[key] = row.value
     return rows["smtp_host"], int(rows["smtp_port"]), rows["smtp_user"], decrypt_value(rows["smtp_password_enc"])
+
+async def _get_sms_config(db: DbSession) -> dict:
+    """读取短信配置。sms_mode 必填：mock=只记日志（开发联调），aliyun=真实发送。"""
+    keys = ("sms_mode", "sms_access_key_id", "sms_access_key_secret_enc", "sms_sign_name", "sms_template_code")
+    rows = {}
+    for key in keys:
+        result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
+        row = result.scalar_one_or_none()
+        if row:
+            rows[key] = row.value
+    mode = rows.get("sms_mode")
+    if mode not in ("mock", "aliyun"):
+        raise HTTPException(status_code=400, detail="短信服务未配置，请联系管理员")
+    return {
+        "mode": mode,
+        "access_key_id": rows.get("sms_access_key_id"),
+        "access_key_secret": decrypt_value(rows["sms_access_key_secret_enc"]) if rows.get("sms_access_key_secret_enc") else None,
+        "sign_name": rows.get("sms_sign_name"),
+        "template_code": rows.get("sms_template_code"),
+    }
 
 
 @router.post("/send-verification-code")
@@ -125,6 +148,39 @@ async def send_email_verification_code(
 
     return {"message": "验证码已发送"}
 
+@router.post("/send-sms-code")
+async def send_sms_verification_code(
+    body: SendSmsCodeRequest,
+    db: DbSession,
+):
+    phone = body.phone.strip()
+
+    existing = await db.execute(
+        select(User).where(User.phone == phone, User.is_deleted == False)
+    )
+    if existing.scalars().first():
+        raise HTTPException(status_code=409, detail="该手机号已被注册")
+
+    await _enforce_resend_interval(db, PhoneVerificationCode, phone, field="phone")
+
+    sms = await _get_sms_config(db)
+    code = _generate_code()
+    verification_code = PhoneVerificationCode(
+        phone=phone,
+        code=code,
+        expires_at=utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES),
+    )
+    db.add(verification_code)
+    await db.commit()
+
+    try:
+        send_sms_or_mock(phone, code, **sms)
+    except SmsSendError as exc:
+        logger.exception("发送短信验证码失败: phone=%s", phone)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"message": "验证码已发送"}
+
 
 async def _verify_email_code(db: DbSession, email: str, code: str) -> None:
     result = await db.execute(
@@ -141,6 +197,21 @@ async def _verify_email_code(db: DbSession, email: str, code: str) -> None:
     verification_code.used = True
 
 
+async def _verify_phone_code(db: DbSession, phone: str, code: str) -> None:
+    result = await db.execute(
+        select(PhoneVerificationCode).where(
+            PhoneVerificationCode.phone == phone,
+            PhoneVerificationCode.code == code,
+            PhoneVerificationCode.used == False,
+            PhoneVerificationCode.expires_at > utcnow(),
+        )
+    )
+    verification_code = result.scalars().first()
+    if not verification_code:
+        raise HTTPException(status_code=400, detail="短信验证码无效或已过期")
+    verification_code.used = True
+
+
 @router.post("/register", response_model=TokenResponse)
 async def register(body: RegisterRequest, db: DbSession):
     result = await db.execute(
@@ -150,22 +221,21 @@ async def register(body: RegisterRequest, db: DbSession):
     if setting and setting.value == "false":
         raise HTTPException(status_code=400, detail="系统注册功能已关闭，请联系管理员")
 
-    await _verify_email_code(db, body.security_email_1, body.security_email_1_code)
+    phone = body.phone.strip()
 
-    if body.security_email_2:
-        if not body.security_email_2_code:
-            raise HTTPException(status_code=400, detail="备用安全邮箱需要提供验证码")
-        await _verify_email_code(db, body.security_email_2, body.security_email_2_code)
-
-    email_1 = body.security_email_1.strip().lower()
-    existing_email = await db.execute(
-        select(SecurityEmail).where(
-            SecurityEmail.email == email_1,
-            SecurityEmail.is_verified == True,
-        )
+    # 唯一性预检：用户名与手机号都不得重复（数据库唯一索引兜底）
+    existing_user = await db.execute(
+        select(User).where(User.username == body.username, User.is_deleted == False)
     )
-    if existing_email.scalars().first():
-        raise HTTPException(status_code=409, detail="该邮箱已被注册，请使用其他邮箱或登录已有账户")
+    if existing_user.scalars().first():
+        raise HTTPException(status_code=409, detail="该用户名已被使用，请换一个")
+    existing_phone = await db.execute(
+        select(User).where(User.phone == phone, User.is_deleted == False)
+    )
+    if existing_phone.scalars().first():
+        raise HTTPException(status_code=409, detail="该手机号已被注册，请直接登录或换号")
+
+    await _verify_phone_code(db, phone, body.phone_code)
 
     result = await db.execute(select(User).where(User.is_deleted == False))
     existing_users = result.scalars().all()
@@ -176,27 +246,21 @@ async def register(body: RegisterRequest, db: DbSession):
         password_hash=hash_password(body.password),
         role=role,
         nickname=body.nickname,
+        phone=phone,
         is_active=True,
     )
     await add_user_with_generated_id(db, user)
 
-    security_email_1 = SecurityEmail(
-        user_id=user.id,
-        email=email_1,
-        is_primary=True,
-        is_verified=True,
-    )
-    db.add(security_email_1)
-
-    if body.security_email_2:
-        email_2 = body.security_email_2.strip().lower()
-        security_email_2 = SecurityEmail(
+    # 安全邮箱选填：注册阶段不强制验证，先记为未验证，
+    # 用户后续在设置页完成验证后可用于找回密码
+    if body.security_email_1:
+        security_email = SecurityEmail(
             user_id=user.id,
-            email=email_2,
-            is_primary=False,
-            is_verified=True,
+            email=body.security_email_1.strip().lower(),
+            is_primary=True,
+            is_verified=False,
         )
-        db.add(security_email_2)
+        db.add(security_email)
 
     await db.commit()
     await db.refresh(user)

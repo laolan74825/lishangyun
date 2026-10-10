@@ -13,10 +13,9 @@ class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6, max_length=128)
     nickname: str | None = Field(None, max_length=50)
-    security_email_1: str = Field(..., max_length=100, description="主安全邮箱，必填")
-    security_email_1_code: str = Field(..., max_length=10, description="主安全邮箱验证码")
-    security_email_2: str | None = Field(None, max_length=100, description="备用安全邮箱，选填")
-    security_email_2_code: str | None = Field(None, max_length=10, description="备用安全邮箱验证码")
+    security_email_1: str | None = Field(None, max_length=100, description="安全邮箱，选填，注册时不强制验证")
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号，必填且全站唯一")
+    phone_code: str = Field(..., min_length=4, max_length=10, description="手机短信验证码")
 
 
 class LoginRequest(BaseModel):
@@ -36,6 +35,7 @@ class UserInfo(BaseModel):
     role: str
     nickname: str | None = None
     email: str | None = None
+    phone: str | None = None
     status: str = "active"
     security_mode: str = "normal"
     is_active: bool
@@ -64,6 +64,10 @@ class PasswordResetConfirm(BaseModel):
 
 class SendVerificationCodeRequest(BaseModel):
     email: str = Field(..., max_length=100)
+
+
+class SendSmsCodeRequest(BaseModel):
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
 
 
 class VerifyPasswordRequest(BaseModel):

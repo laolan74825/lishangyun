@@ -16,7 +16,9 @@ interface AuthStatus {
   user_count: number
 }
 
-type ErrorField = 'username' | 'password' | 'confirm' | 'code1' | 'code2' | 'terms'
+type ErrorField = 'username' | 'password' | 'confirm' | 'phone' | 'code' | 'terms'
+
+const PHONE_PATTERN = /^1[3-9]\d{9}$/
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -25,21 +27,17 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [phone, setPhone] = useState('')
+  const [phoneCode, setPhoneCode] = useState('')
   const [securityEmail1, setSecurityEmail1] = useState('')
-  const [securityEmail1Code, setSecurityEmail1Code] = useState('')
-  const [securityEmail2, setSecurityEmail2] = useState('')
-  const [securityEmail2Code, setSecurityEmail2Code] = useState('')
-  const [countdown1, setCountdown1] = useState(0)
-  const [countdown2, setCountdown2] = useState(0)
-  const [sendingCode1, setSendingCode1] = useState(false)
-  const [sendingCode2, setSendingCode2] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [sendingCode, setSendingCode] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   const [error, setError] = useState('')
   const [errorField, setErrorField] = useState<ErrorField>('password')
   const [loading, setLoading] = useState(false)
-  const timerRef1 = useRef<ReturnType<typeof setInterval> | null>(null)
-  const timerRef2 = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     api.get<AuthStatus>('/auth/status').then((status) => {
@@ -57,8 +55,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     return () => {
-      if (timerRef1.current) clearInterval(timerRef1.current)
-      if (timerRef2.current) clearInterval(timerRef2.current)
+      if (timerRef.current) clearInterval(timerRef.current)
     }
   }, [])
 
@@ -72,10 +69,10 @@ export default function LoginPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [showTerms])
 
-  const startCountdown = useCallback((setter: React.Dispatch<React.SetStateAction<number>>, timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
-    setter(60)
+  const startCountdown = useCallback(() => {
+    setCountdown(60)
     timerRef.current = setInterval(() => {
-      setter((prev) => {
+      setCountdown((prev) => {
         if (prev <= 1) {
           if (timerRef.current) clearInterval(timerRef.current)
           timerRef.current = null
@@ -91,17 +88,17 @@ export default function LoginPage() {
     setErrorField(field)
   }
 
-  async function handleSendCode(email: string, setter: React.Dispatch<React.SetStateAction<number>>, timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>, setSending: React.Dispatch<React.SetStateAction<boolean>>, field: ErrorField) {
-    if (!email) return
+  async function handleSendCode() {
+    if (!phone) return
     setError('')
-    setSending(true)
+    setSendingCode(true)
     try {
-      await api.post('/auth/send-verification-code', { email })
-      startCountdown(setter, timerRef)
+      await api.post('/auth/send-sms-code', { phone })
+      startCountdown()
     } catch (err: unknown) {
-      setFieldError(err instanceof Error ? err.message : '验证码发送失败', field)
+      setFieldError(err instanceof Error ? err.message : '验证码发送失败', 'code')
     } finally {
-      setSending(false)
+      setSendingCode(false)
     }
   }
 
@@ -114,13 +111,13 @@ export default function LoginPage() {
       return
     }
 
-    if (isRegister && !securityEmail1Code) {
-      setFieldError('请输入主安全邮箱验证码', 'code1')
+    if (isRegister && !PHONE_PATTERN.test(phone)) {
+      setFieldError('请输入正确的 11 位手机号', 'phone')
       return
     }
 
-    if (isRegister && securityEmail2 && !securityEmail2Code) {
-      setFieldError('请输入备用安全邮箱验证码', 'code2')
+    if (isRegister && !phoneCode) {
+      setFieldError('请输入短信验证码', 'code')
       return
     }
 
@@ -136,10 +133,9 @@ export default function LoginPage() {
         ? {
             username,
             password,
-            security_email_1: securityEmail1,
-            security_email_1_code: securityEmail1Code,
-            security_email_2: securityEmail2 || undefined,
-            security_email_2_code: securityEmail2 ? securityEmail2Code : undefined,
+            phone,
+            phone_code: phoneCode,
+            security_email_1: securityEmail1 || undefined,
           }
         : { username, password }
       const res = await api.post<TokenResponse>(endpoint, body)
@@ -152,8 +148,12 @@ export default function LoginPage() {
       navigate({ to: isAdmin ? '/admin' : '/', replace: true })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '操作失败'
-      // 注册时的接口错误（如用户名已存在）归到用户名字段，登录时归到密码字段
-      setFieldError(msg, isRegister ? 'username' : 'password')
+      // 注册时的接口错误（如用户名/手机号已存在）归到对应字段，登录时归到密码字段
+      if (isRegister && msg.includes('手机号')) {
+        setFieldError(msg, 'phone')
+      } else {
+        setFieldError(msg, isRegister ? 'username' : 'password')
+      }
     } finally {
       setLoading(false)
     }
@@ -212,7 +212,9 @@ export default function LoginPage() {
 
           {isRegister && (
             <div>
-              <label className="mb-1 block text-sm font-medium text-ink">确认密码</label>
+              <label className="mb-1 block text-sm font-medium text-ink">
+                确认密码
+              </label>
               <input
                 type="password"
                 value={confirmPassword}
@@ -234,41 +236,48 @@ export default function LoginPage() {
           {isRegister && (
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">
-                安全邮箱 <span className="text-danger">*</span>
+                手机号 <span className="text-danger">*</span>
               </label>
-              <EmailSuggestInput
-                value={securityEmail1}
-                onChange={setSecurityEmail1}
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => {
+                  setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))
+                  setError('')
+                }}
                 required
-                autoComplete="email"
-                placeholder="用于找回密码的主邮箱"
+                inputMode="numeric"
+                autoComplete="tel"
+                aria-label="手机号"
+                className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'phone' ? 'border-danger' : 'border-line'}`}
+                placeholder="用于注册和找回账号"
               />
               <div className="mt-2 flex gap-2">
                 <input
                   type="text"
-                  value={securityEmail1Code}
+                  value={phoneCode}
                   onChange={(e) => {
-                    setSecurityEmail1Code(e.target.value.replace(/\D/g, '').slice(0, 6))
+                    setPhoneCode(e.target.value.replace(/\D/g, '').slice(0, 6))
                     setError('')
                   }}
                   required
                   maxLength={6}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  aria-label="主安全邮箱验证码"
-                  className={`min-w-0 flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code1' ? 'border-danger' : 'border-line'}`}
-                  placeholder="验证码"
+                  aria-label="短信验证码"
+                  className={`min-w-0 flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code' ? 'border-danger' : 'border-line'}`}
+                  placeholder="短信验证码"
                 />
                 <button
                   type="button"
-                  disabled={countdown1 > 0 || sendingCode1 || !securityEmail1}
-                  onClick={() => handleSendCode(securityEmail1, setCountdown1, timerRef1, setSendingCode1, 'code1')}
-                  className="whitespace-nowrap rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
+                  disabled={countdown > 0 || sendingCode || !PHONE_PATTERN.test(phone)}
+                  onClick={handleSendCode}
+                  className="shrink-0 rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
                 >
-                  {sendingCode1 ? '发送中…' : countdown1 > 0 ? `${countdown1}s` : '发送验证码'}
+                  {sendingCode ? '发送中…' : countdown > 0 ? `${countdown}s` : '发送验证码'}
                 </button>
               </div>
-              {error && errorField === 'code1' && (
+              {error && (errorField === 'phone' || errorField === 'code') && (
                 <p className="mt-1 text-xs text-danger">{error}</p>
               )}
             </div>
@@ -276,43 +285,15 @@ export default function LoginPage() {
 
           {isRegister && (
             <div>
-              <label className="mb-1 block text-sm font-medium text-ink">备用安全邮箱</label>
+              <label className="mb-1 block text-sm font-medium text-ink">
+                安全邮箱 <span className="text-xs font-normal text-ink-secondary">（选填）</span>
+              </label>
               <EmailSuggestInput
-                value={securityEmail2}
-                onChange={setSecurityEmail2}
+                value={securityEmail1}
+                onChange={setSecurityEmail1}
                 autoComplete="email"
-                placeholder="可选，最多2个安全邮箱"
+                placeholder="用于找回密码，可稍后在设置中绑定"
               />
-              {securityEmail2 && (
-                <div className="mt-2 flex gap-2">
-                  <input
-                    type="text"
-                    value={securityEmail2Code}
-                    onChange={(e) => {
-                      setSecurityEmail2Code(e.target.value.replace(/\D/g, '').slice(0, 6))
-                      setError('')
-                    }}
-                    required
-                    maxLength={6}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    aria-label="备用安全邮箱验证码"
-                    className={`min-w-0 flex-1 rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'code2' ? 'border-danger' : 'border-line'}`}
-                    placeholder="验证码"
-                  />
-                  <button
-                    type="button"
-                    disabled={countdown2 > 0 || sendingCode2 || !securityEmail2}
-                    onClick={() => handleSendCode(securityEmail2, setCountdown2, timerRef2, setSendingCode2, 'code2')}
-                    className="whitespace-nowrap rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
-                  >
-                    {sendingCode2 ? '发送中…' : countdown2 > 0 ? `${countdown2}s` : '发送验证码'}
-                  </button>
-                </div>
-              )}
-              {error && errorField === 'code2' && (
-                <p className="mt-1 text-xs text-danger">{error}</p>
-              )}
             </div>
           )}
 

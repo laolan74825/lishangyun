@@ -17,6 +17,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user", index=True)
     nickname: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     security_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
     encryption_key_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
