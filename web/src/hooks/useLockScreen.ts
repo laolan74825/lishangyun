@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
+import { isAuthenticated } from '../lib/auth'
 
 /**
  * 自动锁屏 hook。
@@ -17,6 +18,8 @@ export function useLockScreen() {
 
   /** 判定并执行锁屏，返回当前是否已锁 */
   const checkLock = useCallback(() => {
+    // 未登录不锁屏：没有账户可用来解锁，锁死页面会把登录/初始化流程堵死
+    if (!isAuthenticated()) return false
     const state = useAppStore.getState().lockState
     if (state.isLocked) return true
     const elapsed = Date.now() - state.lastActivity

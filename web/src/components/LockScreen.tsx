@@ -74,7 +74,8 @@ export default function LockScreen() {
     }
   }
 
-  if (!isLocked) return null
+  // 未登录不渲染锁屏（页面已空闲超时也只在该登录用户在场时锁定）
+  if (!isLocked || !authed) return null
 
   const user = getCurrentUser()
   const canSubmit = method === 'password' ? password.trim().length > 0 : pin.length === 4

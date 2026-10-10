@@ -16,9 +16,27 @@ describe('useLockScreen', () => {
   beforeEach(() => {
     vi.useRealTimers()
     localStorage.clear()
+    // 模拟已登录：未登录时不应触发锁屏
+    localStorage.setItem('gr.access_token', 'test-token')
     useAppStore.setState({
       lockState: { isLocked: false, lockTimeout: 30, lastActivity: Date.now() },
     })
+  })
+
+  it('未登录时不锁屏（没有账户可解锁，不能堵死登录/初始化流程）', () => {
+    localStorage.removeItem('gr.access_token')
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    const stale = Date.now() - 60 * 60 * 1000
+    useAppStore.setState({
+      lockState: { isLocked: false, lockTimeout: 30, lastActivity: stale },
+    })
+    const { result } = renderHook(() => useLockScreen())
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(result.current.isLocked).toBe(false)
+    vi.useRealTimers()
   })
 
   it('未锁屏时活动会更新最后活跃时间', () => {
