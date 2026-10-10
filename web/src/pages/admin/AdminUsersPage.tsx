@@ -276,12 +276,15 @@ export default function AdminUsersPage() {
                               {u.role === 'admin' ? '降为一般用户' : '设为系统管理员'}
                             </button>
                           )}
-                          <button
-                            onClick={() => setTogglingUser(u)}
-                            className="rounded-md border border-line px-2 py-1 text-xs text-ink-secondary hover:border-primary"
-                          >
-                            {u.is_active ? '禁用' : '启用'}
-                          </button>
+                          {/* 超级管理员不可禁用：后端同样拒绝，这里直接不显示入口 */}
+                          {u.role !== 'super_admin' && (
+                            <button
+                              onClick={() => setTogglingUser(u)}
+                              className="rounded-md border border-line px-2 py-1 text-xs text-ink-secondary hover:border-primary"
+                            >
+                              {u.is_active ? '禁用' : '启用'}
+                            </button>
+                          )}
                           {u.role !== 'super_admin' && (
                             <button
                               onClick={() => setDeletingUser(u)}
