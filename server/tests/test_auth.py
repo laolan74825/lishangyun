@@ -347,6 +347,11 @@ class TestSendVerificationCode:
         db_session.add(SystemSetting(key="sms_mode", value="mock"))
         await db_session.commit()
 
+    @pytest.fixture()
+    def _patch_email_sender(self, monkeypatch):
+        monkeypatch.setattr("app.api.auth.send_verification_email", lambda *a, **k: None)
+        monkeypatch.setattr("app.api.account.send_verification_email", lambda *a, **k: None)
+
     async def test_send_sms_code_mock_mode(self, client, sms_mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.auth._generate_code", lambda: "654321")
         resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000200"})
@@ -374,10 +379,8 @@ class TestSendVerificationCode:
         await db_session.commit()
         resp = client.post("/api/auth/send-sms-code", json={"phone": "13800000202"})
         assert resp.status_code == 409
-    @pytest.fixture()
-    def _patch_email_sender(self, monkeypatch):
-        monkeypatch.setattr("app.api.auth.send_verification_email", lambda *a, **k: None)
-        monkeypatch.setattr("app.api.account.send_verification_email", lambda *a, **k: None)
+
+
 
     async def test_resend_within_interval_rejected(self, client, db_session, smtp_settings, _patch_email_sender):
         resp = client.post("/api/auth/send-verification-code", json={"email": "fresh@test.com"})
@@ -451,6 +454,91 @@ class TestSendVerificationCode:
         })
         assert resp.status_code == 400
         assert "无效或已过期" in resp.json()["detail"]
+
+
+class TestPasswordResetByPhone:
+    """手机号找回密码：短信验证码重置全流程。"""
+
+    @pytest.fixture()
+    async def phone_user(self, db_session):
+        u = User(
+            username="phoneuser",
+            password_hash=hash_password("oldpassword"),
+            phone="13800000300",
+        )
+        db_session.add(u)
+        await db_session.commit()
+        await db_session.refresh(u)
+        return u
+
+    @pytest.fixture()
+    async def sms_mock_settings(self, db_session):
+        from app.models.system_setting import SystemSetting
+
+        db_session.add(SystemSetting(key="sms_mode", value="mock"))
+        await db_session.commit()
+
+    async def _latest_reset_code(self, phone: str):
+        async with TestAsyncSession() as session:
+            from app.models.reset_code import ResetCode
+            result = await session.execute(
+                select(ResetCode).where(ResetCode.phone == phone).order_by(ResetCode.id.desc())
+            )
+            return result.scalars().first()
+
+    async def test_reset_by_phone_full_flow(self, client, phone_user, sms_mock_settings):
+        resp = client.post("/api/auth/password-reset/request-phone", json={"phone": "13800000300"})
+        assert resp.status_code == 200
+
+        code_row = await self._latest_reset_code("13800000300")
+        assert code_row is not None and code_row.used == False
+
+        resp = client.post("/api/auth/password-reset/confirm", json={
+            "phone": "13800000300",
+            "code": code_row.code,
+            "new_password": "newpassword123",
+        })
+        assert resp.status_code == 200
+
+        # 旧密码失效、新密码可登录
+        resp = client.post("/api/auth/login", json={
+            "username": "phoneuser", "password": "oldpassword",
+        })
+        assert resp.status_code == 401
+        resp = client.post("/api/auth/login", json={
+            "username": "phoneuser", "password": "newpassword123",
+        })
+        assert resp.status_code == 200
+
+        # 重置码已一次性使用
+        resp = client.post("/api/auth/password-reset/confirm", json={
+            "phone": "13800000300",
+            "code": code_row.code,
+            "new_password": "anotherpassword",
+        })
+        assert resp.status_code == 400
+
+    async def test_reset_by_phone_unregistered_generic(self, client, sms_mock_settings):
+        resp = client.post("/api/auth/password-reset/request-phone", json={"phone": "13800000301"})
+        assert resp.status_code == 200
+        assert await self._latest_reset_code("13800000301") is None
+
+    async def test_reset_confirm_phone_wrong_code(self, client, phone_user, sms_mock_settings):
+        client.post("/api/auth/password-reset/request-phone", json={"phone": "13800000300"})
+        resp = client.post("/api/auth/password-reset/confirm", json={
+            "phone": "13800000300",
+            "code": "000000",
+            "new_password": "newpassword123",
+        })
+        assert resp.status_code == 400
+
+    async def test_reset_confirm_without_target_rejected(self, client):
+        resp = client.post("/api/auth/password-reset/confirm", json={
+            "code": "123456",
+            "new_password": "newpassword123",
+        })
+        assert resp.status_code == 422
+
 
 
 class TestAdminRoleRules:

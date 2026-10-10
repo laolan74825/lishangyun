@@ -30,7 +30,7 @@ from app.models import (
 )
 from app.models.user import User
 
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/giftregistry_test"
+TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@db:5432/giftregistry_test"
 test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 TestAsyncSession = async_sessionmaker(bind=test_engine, expire_on_commit=False)
 

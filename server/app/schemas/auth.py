@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # 角色体系：一般用户(user) / 系统管理员(admin) / 超级管理员(super_admin)
 # 超级管理员仅由系统首个注册用户产生，不通过接口授予
@@ -57,9 +57,17 @@ class PasswordResetEmailHintRequest(BaseModel):
 
 
 class PasswordResetConfirm(BaseModel):
-    email: str
+    email: str | None = None
+    phone: str | None = None
     code: str
     new_password: str = Field(..., min_length=6, max_length=128)
+
+    @model_validator(mode="after")
+    def _at_least_one_target(self):
+        if not self.email and not self.phone:
+            raise ValueError("邮箱和手机号至少提供一个")
+        return self
+
 
 
 class SendVerificationCodeRequest(BaseModel):
@@ -67,6 +75,10 @@ class SendVerificationCodeRequest(BaseModel):
 
 
 class SendSmsCodeRequest(BaseModel):
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
+
+
+class PhonePasswordResetRequest(BaseModel):
     phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
 
 

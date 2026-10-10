@@ -6,6 +6,7 @@ import NotificationBell from './NotificationBell'
 import MobileBottomTabs from './MobileBottomTabs'
 import TopNavBar from './TopNavBar'
 import DesktopSidebar from './DesktopSidebar'
+import SecurityEmailPrompt from '../SecurityEmailPrompt'
 
 function MobileUserMenu() {
   const navigate = useNavigate()
@@ -76,6 +77,7 @@ export default function AppLayout() {
       <div className="block md:hidden">
         <MobileBottomTabs />
       </div>
+      <SecurityEmailPrompt />
       <footer className="hidden h-8 shrink-0 items-center justify-between border-t border-line bg-card px-6 text-xs text-ink-secondary md:flex">
         <span>礼尚云 v{APP_VERSION}</span>
         <span>Ctrl+N 记一笔 · Ctrl+F 搜索 · Esc 返回</span>

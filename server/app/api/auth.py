@@ -29,6 +29,7 @@ from app.schemas.auth import (
     LoginRequest,
     PasswordResetConfirm,
     PasswordResetEmailHintRequest,
+    PhonePasswordResetRequest,
     PasswordResetRequest,
     RegisterRequest,
     SendSmsCodeRequest,
@@ -405,41 +406,99 @@ async def request_reset(
     )
     return {"message": "验证码已发送"}
 
+@router.post("/password-reset/request-phone")
+async def request_reset_phone(
+    body: PhonePasswordResetRequest,
+    db: DbSession,
+):
+    """手机号找回密码：向该手机号发送短信验证码。
+
+    手机号未注册时返回与成功相同的模糊文案，不泄露号码是否已注册。
+    """
+    phone = body.phone.strip()
+    result = await db.execute(
+        select(User).where(User.phone == phone, User.is_deleted == False)
+    )
+    user = result.scalars().first()
+    if not user:
+        return {"message": "如果该手机号已注册，验证码将稍后发送"}
+
+    await _enforce_resend_interval(db, ResetCode, phone, field="phone")
+
+    sms = await _get_sms_config(db)
+    code = _generate_code()
+    reset_code = ResetCode(
+        user_id=user.id,
+        phone=phone,
+        code=code,
+        expires_at=utcnow() + timedelta(minutes=CODE_EXPIRE_MINUTES),
+    )
+    db.add(reset_code)
+    await db.commit()
+
+    try:
+        send_sms_or_mock(phone, code, **sms)
+    except SmsSendError as exc:
+        logger.exception("发送密码重置短信失败: phone=%s", phone)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"message": "验证码已发送"}
+
 
 @router.post("/password-reset/confirm")
 async def confirm_reset(
     body: PasswordResetConfirm,
     db: DbSession,
 ):
-    email = body.email.strip().lower()
-    result = await db.execute(
-        select(ResetCode).where(
-            ResetCode.email == email,
-            ResetCode.code == body.code,
-            ResetCode.used == False,
-            ResetCode.expires_at > utcnow(),
+    if body.phone:
+        phone = body.phone.strip()
+        result = await db.execute(
+            select(ResetCode).where(
+                ResetCode.phone == phone,
+                ResetCode.code == body.code,
+                ResetCode.used == False,
+                ResetCode.expires_at > utcnow(),
+            )
         )
-    )
-    reset_code = result.scalars().first()
-    if not reset_code:
-        raise HTTPException(status_code=400, detail="验证码无效或已过期")
-
-    result = await db.execute(
-        select(SecurityEmail).where(
-            SecurityEmail.email == email,
-            SecurityEmail.is_verified == True,
+        reset_code = result.scalars().first()
+        if not reset_code:
+            raise HTTPException(status_code=400, detail="验证码无效或已过期")
+        result = await db.execute(
+            select(User).where(User.id == reset_code.user_id, User.is_deleted == False)
         )
-    )
-    security_email = result.scalars().first()
-    if not security_email:
-        raise HTTPException(status_code=400, detail="该邮箱未验证或不存在")
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=400, detail="用户不存在")
+    else:
+        email = body.email.strip().lower()
+        result = await db.execute(
+            select(ResetCode).where(
+                ResetCode.email == email,
+                ResetCode.code == body.code,
+                ResetCode.used == False,
+                ResetCode.expires_at > utcnow(),
+            )
+        )
+        reset_code = result.scalars().first()
+        if not reset_code:
+            raise HTTPException(status_code=400, detail="验证码无效或已过期")
 
-    result = await db.execute(
-        select(User).where(User.id == security_email.user_id, User.is_deleted == False)
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=400, detail="用户不存在")
+        result = await db.execute(
+            select(SecurityEmail).where(
+                SecurityEmail.email == email,
+                SecurityEmail.is_verified == True,
+            )
+        )
+        security_email = result.scalars().first()
+        if not security_email:
+            raise HTTPException(status_code=400, detail="该邮箱未验证或不存在")
+
+        result = await db.execute(
+            select(User).where(User.id == security_email.user_id, User.is_deleted == False)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=400, detail="用户不存在")
 
     user.password_hash = hash_password(body.new_password)
     reset_code.used = True

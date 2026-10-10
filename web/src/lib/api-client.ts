@@ -1247,12 +1247,17 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await api.post('/auth/password-reset/request', { email })
 }
 
+export async function requestPasswordResetByPhone(phone: string): Promise<void> {
+  await api.post('/auth/password-reset/request-phone', { phone })
+}
+
 export async function requestPasswordResetHint(username: string): Promise<{ masked_email: string }> {
   return api.post('/auth/password-reset/email-hint', { username })
 }
 
 export async function confirmPasswordReset(data: {
-  email: string
+  email?: string
+  phone?: string
   code: string
   new_password: string
 }): Promise<void> {
