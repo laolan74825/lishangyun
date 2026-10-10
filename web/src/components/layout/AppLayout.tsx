@@ -30,7 +30,7 @@ function MobileHeader() {
   return (
     <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-line bg-card px-4">
       <Link to="/" className="text-lg font-bold text-ink">
-        🧧 礼云随笔
+        🧧 礼尚云
       </Link>
       <div className="flex items-center gap-3">
         <SyncStatusBadge />
@@ -77,7 +77,7 @@ export default function AppLayout() {
         <MobileBottomTabs />
       </div>
       <footer className="hidden h-8 shrink-0 items-center justify-between border-t border-line bg-card px-6 text-xs text-ink-secondary md:flex">
-        <span>礼云随笔 v{APP_VERSION}</span>
+        <span>礼尚云 v{APP_VERSION}</span>
         <span>Ctrl+N 记一笔 · Ctrl+F 搜索 · Esc 返回</span>
       </footer>
     </div>

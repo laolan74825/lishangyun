@@ -510,7 +510,7 @@ describe('LoginPage - UI 状态', () => {
 
     render(<LoginPage />)
 
-    expect(screen.getByText('🧧 礼云随笔')).toBeInTheDocument()
+    expect(screen.getByText('🧧 礼尚云')).toBeInTheDocument()
   })
 
   it('注册按钮文本在登录模式为"登录"', () => {

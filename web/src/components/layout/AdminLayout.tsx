@@ -53,7 +53,7 @@ export default function AdminLayout() {
             to="/"
             className="text-lg font-bold text-ink"
           >
-            🧧 礼云随笔
+            🧧 礼尚云
           </Link>
           <span className="text-ink-secondary">/</span>
           <span className="text-sm font-medium text-ink">管理后台</span>

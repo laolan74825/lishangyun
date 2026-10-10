@@ -29,7 +29,7 @@ function HomeLink() {
   const isActive = location.pathname === '/'
   return (
     <Link to="/" className="text-lg font-bold text-white">
-      🧧 礼云随笔
+      🧧 礼尚云
       {/* 「首页」与右侧导航项同一套激活态模式 */}
       <span
         className={`ml-1.5 rounded-md px-1.5 py-0.5 align-middle text-xs font-normal transition-colors ${

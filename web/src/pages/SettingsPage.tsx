@@ -303,7 +303,7 @@ export default function SettingsPage() {
         <section className="rounded-card bg-card p-6 shadow-card">
           <h2 className="text-section-title">ℹ️ 关于</h2>
           <div className="mt-3 flex flex-col gap-2 text-sm text-ink-secondary">
-            <p><span className="font-medium text-ink">礼云随笔</span> · 人情往来小账本 v{APP_VERSION}</p>
+            <p><span className="font-medium text-ink">礼尚云</span> · 人情往来小账本 v{APP_VERSION}</p>
             <p>数据存储：服务端 PostgreSQL（支持多终端协作）</p>
             <p>技术栈：React + FastAPI + PostgreSQL</p>
           </div>

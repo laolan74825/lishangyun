@@ -18,8 +18,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: '礼云随笔',
-        short_name: '礼云随笔',
+        name: '礼尚云',
+        short_name: '礼尚云',
         description: '人情往来小账本——随手记下每一份心意',
         lang: 'zh-CN',
         theme_color: '#E07B3A',

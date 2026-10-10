@@ -30,7 +30,7 @@ export interface CachedGuestbook extends Guestbook {
   _cachedAt: number
 }
 
-export class GiftRegistryDB extends Dexie {
+export class LishangyunDB extends Dexie {
   gbRecords!: Table<SyncableGbRecord, number>
   dailyRecords!: Table<SyncableDailyRecord, number>
   persons!: Table<SyncablePerson, number>
@@ -75,7 +75,7 @@ export class GiftRegistryDB extends Dexie {
   }
 }
 
-export const db = new GiftRegistryDB()
+export const db = new LishangyunDB()
 
 export async function saveLocalRecord(record: GbRecord): Promise<void> {
   await db.gbRecords.put({ ...record, _syncedAt: 0, _pendingSync: true, _updatedAt: Date.now(), _deleted: false })
