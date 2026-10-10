@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,6 +12,10 @@ from app.api.router import api_router
 from app.config import settings, validate_security_settings
 from app.core.errors import register_exception_handlers
 from app.database import Base, engine
+
+# 应用自身的 logger.info（如 Mock 短信验证码）默认被根 logger 的 WARNING 级别吞掉，
+# 这里统一放开到 INFO，让运维信息（验证码、告警）能在 docker logs 里看到
+logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
