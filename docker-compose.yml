@@ -4,10 +4,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # 生产环境必须在 .env 配置强密码；缺省值仅供本地开发
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: giftregistry
     ports:
-      - "5432:5432"
+      # 只绑本机回环，数据库端口不对公网开放（云上安全红线）
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,9 +22,10 @@ services:
     build: ./server
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      # 只绑本机回环，由 nginx 反代对外，api 端口不直接暴露公网
+      - "127.0.0.1:8000:8000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/giftregistry
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/giftregistry
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost}
@@ -47,6 +50,8 @@ services:
       - static_files:/static
     environment:
       NODE_ENV: production
+      # 国内服务器加速 npm/pnpm 依赖下载
+      NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
 
   nginx:
     image: nginx:alpine
