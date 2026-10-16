@@ -2,7 +2,7 @@
 
 > 本文件由 Kimi Work 对话历史提炼生成（2026-10-12），供 AI 开发会话快速建立上下文。
 > 2026-10-16 增补：1.1 AI 会话阅读清单、第 10 节会话结束保存规范、Docker 运行拓扑。
-> 完整对话存档见 `docs/kimi-work-history/`（11 个对话，含索引 README）。
+> 完整对话存档见 `docs/99-archive/`（含索引 README.md）。
 > 权威需求与规格以 `docs/` 文档为准，本文件只做决策摘要与避坑指引。
 
 ## 1. 项目速览
@@ -27,7 +27,7 @@
 | 修复 Bug | `01-core-specs/06-测试方案.md` + `05-implementation/` 近期汇总（查已知问题） |
 | 用户答疑/故障排查 | `04-support/AI-support.md` + `05-implementation/` 近期汇总 |
 | 部署/运维 | `docker-compose.yml` + `nginx.conf` + `03-operations/` + 本文第 7 节 |
-| 追溯历史决策 | `docs/kimi-work-history/README.md`（11 个完整对话存档）→ `99-archive/` |
+| 追溯历史决策 | `docs/99-archive/README.md`（完整对话存档索引） |
 
 **禁止**：不读需求文档凭记忆实现；跨模块改动不查 `05-implementation/` 近期汇总（同一坑可能修过）。
 
@@ -114,7 +114,7 @@
 | 新踩的坑、新定的关键决策 | 更新本文件（AGENTS.md）对应小节 | 这是下一个会话的上下文来源，价值最高 |
 | 接口/口径/约束变更 | `01-core-specs/` 对应规范 + `CHANGELOG.md`「未发布」段 | 规范与代码同步是硬纪律 |
 | 跨模块、多文件的较大改动 | `05-implementation/YYYY-MM-DD-主题汇总.md` | 记录变更点、验证方式、运维说明 |
-| 值得留存的完整对话 | `docs/kimi-work-history/` | 同步更新其 `README.md` 索引（主题、轮数、日期） |
+| 值得留存的完整对话 | `docs/99-archive/YYYY-MM-DD-主题.md` | 同步更新其 `README.md` 索引（主题、轮数、日期） |
 | 新文档 / 文档版本变化 | `docs/README.md` 对应表格 | 版本号改动必须同步版本表 |
 | 配置/部署形态变化 | 本文件第 7 节 + `docker-compose.yml` 注释 | 如端口、容器名、卷名 |
 
@@ -122,4 +122,4 @@
 
 ## 11. 历史存档
 
-需要追溯某项决策的来龙去脉时，读 `docs/kimi-work-history/README.md` 按主题找到对应对话全文（2026-09-30 至 2026-10-10，共 11 个）。
+需要追溯某项决策的来龙去脉时，读 `docs/99-archive/README.md` 按主题找到对应对话全文（2026-09-30 起持续追加）。
