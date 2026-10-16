@@ -1,3 +1,10 @@
+---
+title: UI设计方案
+version: "3.0"
+updated: "2026-09-07"
+status: active
+---
+
 # 礼尚云 — UI 设计方案（v3.0 全面对齐版）
 
 > 文档版本：v3.0
