@@ -37,6 +37,16 @@ async def update_profile(
     db: DbSession,
 ):
     data = body.model_dump(exclude_unset=True)
+    if "username" in data:
+        new_username = (data["username"] or "").strip()
+        if len(new_username) < 3 or len(new_username) > 50:
+            raise HTTPException(status_code=400, detail="用户名长度需为 3~50 个字符")
+        result = await db.execute(
+            select(User).where(User.username == new_username, User.id != current_user.id)
+        )
+        if result.scalars().first():
+            raise HTTPException(status_code=409, detail="该用户名已被使用，请换一个")
+        data["username"] = new_username
     for k, v in data.items():
         setattr(current_user, k, v)
     current_user.updated_at = utcnow()

@@ -10,7 +10,7 @@ SecurityMode = Literal["normal", "enhanced"]
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str | None = Field(None, max_length=50, description="用户名，选填；留空自动生成（用户_<ID>），注册后可在设置中修改。长度 3~50，在服务端校验")
     password: str = Field(..., min_length=6, max_length=128)
     nickname: str | None = Field(None, max_length=50)
     security_email_1: str | None = Field(None, max_length=100, description="安全邮箱，选填，注册时不强制验证")
@@ -19,7 +19,7 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
+    username: str = Field(..., description="用户名或手机号，服务端按格式自动识别")
     password: str
 
 

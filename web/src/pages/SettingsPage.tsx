@@ -5,7 +5,7 @@ import PageScaffold from '../components/PageScaffold'
 import Toast, { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useAppStore } from '../store/appStore'
-import { getCurrentUser, clearToken, isAdmin } from '../lib/auth'
+import { getCurrentUser, setCurrentUser, clearToken, isAdmin } from '../lib/auth'
 import { syncEngine } from '../lib/sync-engine'
 import { APP_VERSION } from '../lib/version'
 import SyncStatusBadge from '../components/SyncStatusBadge'
@@ -61,20 +61,29 @@ export default function SettingsPage() {
   const [deletePassword, setDeletePassword] = useState('')
 
   const [nickname, setNickname] = useState(profile?.nickname ?? '')
+  const [username, setUsername] = useState(profile?.username ?? '')
   const [autoLockMinutes, setAutoLockMinutes] = useState(String(profile?.auto_lock_minutes ?? 30))
 
   useEffect(() => {
     if (profile) {
       setNickname(profile.nickname ?? '')
+      setUsername(profile.username ?? '')
       setAutoLockMinutes(String(profile.auto_lock_minutes ?? 30))
     }
   }, [profile])
 
   async function handleSaveProfile() {
     try {
+      const newUsername = username.trim()
       await updateProfile.mutateAsync({
         nickname: nickname.trim() || undefined,
+        username: newUsername || undefined,
       })
+      // 同步更新本地缓存的用户信息（导航栏、锁屏等处直接读它）
+      const stored = getCurrentUser()
+      if (stored && newUsername && newUsername !== stored.username) {
+        setCurrentUser({ ...stored, username: newUsername })
+      }
       showToast('资料已保存')
     } catch (err) {
       showToast(err instanceof Error ? err.message : '保存失败')
@@ -135,10 +144,16 @@ export default function SettingsPage() {
               <span className="text-sm font-medium text-ink">用户 ID</span>
               <span className="text-sm font-mono text-ink-secondary">{currentUser?.id ?? '-'}</span>
             </div>
-            <div className="flex items-center justify-between">
+            <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-ink">用户名</span>
-              <span className="text-sm text-ink-secondary">{currentUser?.username ?? '-'}</span>
-            </div>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="3~50 个字符，可用于登录"
+                className="h-11 rounded-btn border border-line px-4 text-base outline-none focus:border-primary"
+              />
+              <span className="text-xs text-ink-secondary">可使用用户名或手机号登录；注册时留空会自动生成</span>
+            </label>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-ink">角色</span>
               <span className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">{roleLabel(currentUser?.role)}</span>

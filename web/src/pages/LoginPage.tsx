@@ -131,7 +131,7 @@ export default function LoginPage() {
       const endpoint = isRegister ? '/auth/register' : '/auth/login'
       const body = isRegister
         ? {
-            username,
+            username: username.trim() || undefined,
             password,
             phone,
             phone_code: phoneCode,
@@ -172,7 +172,9 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-ink">用户名</label>
+            <label className="mb-1 block text-sm font-medium text-ink">
+              {isRegister ? '用户名（选填）' : '账号'}
+            </label>
             <input
               type="text"
               value={username}
@@ -180,12 +182,20 @@ export default function LoginPage() {
                 setUsername(e.target.value)
                 setError('')
               }}
-              required
+              required={!isRegister}
               autoFocus
               autoComplete="username"
               className={`w-full rounded-lg border bg-bg px-3 py-2 text-ink outline-none focus:border-primary ${error && errorField === 'username' ? 'border-danger' : 'border-line'}`}
-              placeholder="请输入用户名"
+              placeholder={isRegister ? '请输入用户名' : '请输入用户名或手机号'}
             />
+            {isRegister && (
+              <p className="mt-1 text-xs text-ink-secondary">
+                留空将自动生成（如 用户_20260001），注册后可在系统设置中修改
+              </p>
+            )}
+            {!isRegister && (
+              <p className="mt-1 text-xs text-ink-secondary">支持用户名或手机号登录</p>
+            )}
             {error && errorField === 'username' && (
               <p className="mt-1 text-xs text-danger">{error}</p>
             )}

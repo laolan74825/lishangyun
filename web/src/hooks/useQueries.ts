@@ -848,7 +848,7 @@ export function useSecurityEmails() {
 export function useUpdateProfile() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { nickname?: string; auto_lock_minutes?: number }) =>
+    mutationFn: (data: { nickname?: string; username?: string; auto_lock_minutes?: number }) =>
       api.updateProfile(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.account.profile() })

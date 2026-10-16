@@ -1272,6 +1272,7 @@ export async function getProfile(): Promise<ProfileResponse> {
 
 export async function updateProfile(data: {
   nickname?: string
+  username?: string
   auto_lock_minutes?: number
 }): Promise<void> {
   await api.put('/account/profile', data)

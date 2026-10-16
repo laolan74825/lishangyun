@@ -1,4 +1,5 @@
 import logging
+import re
 import secrets
 from datetime import timedelta
 
@@ -213,6 +214,17 @@ async def _verify_phone_code(db: DbSession, phone: str, code: str) -> None:
     verification_code.used = True
 
 
+async def _generate_auto_username(db: DbSession, user_id: int) -> str:
+    """自动生成用户名：用户_<ID>；极小概率与手工注册的同名时追加随机后缀兜底。"""
+    base = f"用户_{user_id}"
+    for _ in range(3):
+        result = await db.execute(select(User.id).where(User.username == base))
+        if result.scalar_one_or_none() is None:
+            return base
+        base = f"用户_{user_id}_{secrets.token_hex(2)}"
+    return f"用户_{user_id}_{secrets.token_hex(4)}"
+
+
 @router.post("/register", response_model=TokenResponse)
 async def register(body: RegisterRequest, db: DbSession):
     result = await db.execute(
@@ -223,13 +235,17 @@ async def register(body: RegisterRequest, db: DbSession):
         raise HTTPException(status_code=400, detail="系统注册功能已关闭，请联系管理员")
 
     phone = body.phone.strip()
+    requested_username = body.username.strip() if body.username else ""
 
     # 唯一性预检：用户名与手机号都不得重复（数据库唯一索引兜底）
-    existing_user = await db.execute(
-        select(User).where(User.username == body.username, User.is_deleted == False)
-    )
-    if existing_user.scalars().first():
-        raise HTTPException(status_code=409, detail="该用户名已被使用，请换一个")
+    if requested_username:
+        if len(requested_username) < 3 or len(requested_username) > 50:
+            raise HTTPException(status_code=400, detail="用户名长度需为 3~50 个字符")
+        existing_user = await db.execute(
+            select(User).where(User.username == requested_username, User.is_deleted == False)
+        )
+        if existing_user.scalars().first():
+            raise HTTPException(status_code=409, detail="该用户名已被使用，请换一个")
     existing_phone = await db.execute(
         select(User).where(User.phone == phone, User.is_deleted == False)
     )
@@ -242,8 +258,9 @@ async def register(body: RegisterRequest, db: DbSession):
     existing_users = result.scalars().all()
     role = "super_admin" if len(existing_users) == 0 else "user"
 
+    # 用户名选填：留空时先写占位值拿到自增 ID，再替换为 用户_<ID>
     user = User(
-        username=body.username,
+        username=requested_username or f"tmp_{secrets.token_hex(8)}",
         password_hash=hash_password(body.password),
         role=role,
         nickname=body.nickname,
@@ -251,6 +268,8 @@ async def register(body: RegisterRequest, db: DbSession):
         is_active=True,
     )
     await add_user_with_generated_id(db, user)
+    if not requested_username:
+        user.username = await _generate_auto_username(db, user.id)
 
     # 安全邮箱选填：注册阶段不强制验证，先记为未验证，
     # 用户后续在设置页完成验证后可用于找回密码
@@ -272,24 +291,36 @@ async def register(body: RegisterRequest, db: DbSession):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: DbSession):
-    if login_attempts.is_locked(body.username):
-        minutes = login_attempts.remaining_minutes(body.username)
+    account = body.username.strip()
+
+    if login_attempts.is_locked(account):
+        minutes = login_attempts.remaining_minutes(account)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"失败次数过多，账户已临时锁定，请约 {minutes} 分钟后重试",
         )
 
-    result = await db.execute(
-        select(User).where(User.username == body.username, User.is_deleted == False)
-    )
-    user = result.scalar_one_or_none()
+    # 按格式识别登录凭证：手机号形态优先按手机号查；
+    # 用户名允许纯数字，手机号查不到时回退按用户名查
+    user = None
+    if re.fullmatch(r"1[3-9]\d{9}", account):
+        result = await db.execute(
+            select(User).where(User.phone == account, User.is_deleted == False)
+        )
+        user = result.scalar_one_or_none()
+    if user is None:
+        result = await db.execute(
+            select(User).where(User.username == account, User.is_deleted == False)
+        )
+        user = result.scalar_one_or_none()
+
     if not user or not verify_password(body.password, user.password_hash):
-        login_attempts.record_failure(body.username)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+        login_attempts.record_failure(account)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号或密码错误")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账户已被禁用")
 
-    login_attempts.record_success(body.username)
+    login_attempts.record_success(account)
 
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password)

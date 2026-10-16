@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -95,7 +95,7 @@ describe('LoginPage - 登录流程', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    await user.type(screen.getByPlaceholderText('请输入用户名'), 'testuser')
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'testuser')
     await user.type(screen.getByPlaceholderText('请输入密码'), 'password123')
     await user.click(screen.getByRole('button', { name: '登录' }))
 
@@ -121,7 +121,7 @@ describe('LoginPage - 登录流程', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    await user.type(screen.getByPlaceholderText('请输入用户名'), 'wronguser')
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'wronguser')
     await user.type(screen.getByPlaceholderText('请输入密码'), 'wrongpass')
     await user.click(screen.getByRole('button', { name: '登录' }))
 
@@ -145,7 +145,7 @@ describe('LoginPage - 登录流程', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    await user.type(screen.getByPlaceholderText('请输入用户名'), 'test')
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'test')
     await user.type(screen.getByPlaceholderText('请输入密码'), 'test')
     await user.click(screen.getByRole('button', { name: '登录' }))
 
@@ -414,7 +414,7 @@ describe('LoginPage - 表单验证', () => {
   it('登录表单必填字段', () => {
     render(<LoginPage />)
 
-    const usernameInput = screen.getByPlaceholderText('请输入用户名')
+    const usernameInput = screen.getByPlaceholderText('请输入用户名或手机号')
     const passwordInput = screen.getByPlaceholderText('请输入密码')
 
     expect(usernameInput).toBeRequired()
@@ -439,7 +439,7 @@ describe('LoginPage - 表单验证', () => {
     const smsCodeInput = screen.getByPlaceholderText('短信验证码')
     const emailInput = screen.getByPlaceholderText('用于找回密码，可稍后在设置中绑定')
 
-    expect(usernameInput).toBeRequired()
+    expect(usernameInput).not.toBeRequired()
     expect(passwordInputs[0]).toBeRequired()
     expect(confirmPasswordInput).toBeRequired()
     expect(phoneInput).toBeRequired()
@@ -504,7 +504,7 @@ describe('LoginPage - UI 状态', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    await user.type(screen.getByPlaceholderText('请输入用户名'), 'test')
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'test')
     await user.type(screen.getByPlaceholderText('请输入密码'), 'test')
     await user.click(screen.getByRole('button', { name: '登录' }))
 
@@ -596,7 +596,7 @@ describe('LoginPage - 内联错误提示', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    await user.type(screen.getByPlaceholderText('请输入用户名'), 'wronguser')
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'wronguser')
     await user.type(screen.getByPlaceholderText('请输入密码'), 'wrongpass')
     await user.click(screen.getByRole('button', { name: '登录' }))
 
@@ -627,7 +627,7 @@ describe('LoginPage - 内联错误提示', () => {
       expect(screen.getByText('登录以继续')).toBeInTheDocument()
     })
 
-    await user.type(screen.getByPlaceholderText('请输入用户名'), 'wronguser')
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'wronguser')
     const passwordInput = screen.getByPlaceholderText('请输入密码')
     await user.type(passwordInput, 'wrongpass')
     await user.click(screen.getByRole('button', { name: '登录' }))
@@ -729,7 +729,8 @@ describe('LoginPage - 注册表单内联错误提示', () => {
     })
 
     const usernameInput = screen.getByPlaceholderText('请输入用户名')
-    expect(usernameInput.nextElementSibling?.textContent).toBe('用户名已存在')
+    const field = usernameInput.parentElement!
+    expect(within(field).getByText('用户名已存在')).toBeInTheDocument()
     expect(usernameInput.className).toContain('border-danger')
   })
 
@@ -808,5 +809,42 @@ describe('LoginPage - API 状态检查', () => {
     })
 
     expect(screen.queryByPlaceholderText('用于注册和找回账号')).not.toBeInTheDocument()
+  })
+})
+
+
+describe('LoginPage - 用户名为选填', () => {
+  it('注册时留空用户名，请求体不包含 username 字段', async () => {
+    let requestBody: Record<string, unknown> | null = null
+    server.use(
+      http.post('/api/auth/register', async ({ request }) => {
+        requestBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({
+          access_token: 'fake-token',
+          user: { id: 9, username: '用户_20260009', role: 'user' },
+        })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await user.click(screen.getByText('没有账户？立即注册'))
+    await waitFor(() => {
+      expect(screen.getByText('创建新账户')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getAllByPlaceholderText('请输入密码')[0], 'password123')
+    await user.type(screen.getByPlaceholderText('请再次输入密码'), 'password123')
+    await user.type(screen.getByPlaceholderText('用于注册和找回账号'), '13800001234')
+    await user.type(screen.getByPlaceholderText('短信验证码'), '123456')
+    await user.click(screen.getByRole('checkbox'))
+
+    fireEvent.submit(document.querySelector('form')!)
+
+    await waitFor(() => {
+      expect(requestBody).not.toBeNull()
+    })
+    expect(requestBody).not.toHaveProperty('username')
   })
 })

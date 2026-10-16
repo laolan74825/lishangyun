@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 class ProfileUpdate(BaseModel):
     nickname: str | None = Field(None, max_length=50)
+    username: str | None = Field(None, max_length=50, description="新用户名，长度 3~50，唯一性在服务端校验")
     auto_lock_minutes: int | None = Field(None, ge=1, le=1440)
 
 

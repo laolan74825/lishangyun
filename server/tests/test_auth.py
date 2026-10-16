@@ -76,8 +76,10 @@ class TestRegister:
         resp = client.post("/api/auth/register", json={
             "username": "ab",
             "password": "password123",
+            "phone": "13800001003",
+            "phone_code": "123456",
         })
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
     async def test_register_short_password_rejected(self, client, db_session):
         resp = client.post("/api/auth/register", json={
@@ -731,3 +733,82 @@ class TestPasswordResetEmailHint:
         resp = client.post("/api/auth/password-reset/email-hint", json={"username": "sweepuser_final"})
         assert resp.status_code == 429
         assert "分钟" in resp.json()["detail"]
+
+
+class TestLoginAccountModes:
+    """登录双模：用户名或手机号，服务端按格式识别。"""
+
+    async def test_login_by_phone(self, client, db_session):
+        from tests.conftest import _make_user
+
+        user = await _make_user(db_session, username="phoneuser")
+        user.phone = "13800001211"
+        await db_session.commit()
+
+        resp = client.post("/api/auth/login", json={
+            "username": "13800001211",
+            "password": "password123",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["user"]["username"] == "phoneuser"
+
+    async def test_phone_pattern_username_fallback(self, client, db_session):
+        """用户名形如手机号且未绑定该手机号：按手机号查不到时应回退按用户名查。"""
+        from tests.conftest import _make_user
+
+        await _make_user(db_session, username="13900001212")
+        resp = client.post("/api/auth/login", json={
+            "username": "13900001212",
+            "password": "password123",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["user"]["username"] == "13900001212"
+
+
+class TestRegisterAutoUsername:
+    """注册时用户名选填：留空自动生成 用户_<ID>。"""
+
+    async def test_register_without_username_auto_generates(self, client):
+        await _seed_phone_code("13800001001")
+        resp = client.post("/api/auth/register", json={
+            "password": "password123",
+            "phone": "13800001001",
+            "phone_code": "123456",
+        })
+        assert resp.status_code == 200
+        user = resp.json()["user"]
+        assert user["username"] == f"用户_{user['id']}"
+
+    async def test_register_empty_username_treated_as_auto(self, client):
+        await _seed_phone_code("13800001002")
+        resp = client.post("/api/auth/register", json={
+            "username": "",
+            "password": "password123",
+            "phone": "13800001002",
+            "phone_code": "123456",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["user"]["username"].startswith("用户_")
+
+
+class TestUpdateProfileUsername:
+    """设置页修改用户名：成功生效 + 唯一性冲突 409。"""
+
+    async def test_update_username_success(self, client, user_headers):
+        resp = client.put(
+            "/api/account/profile",
+            json={"username": "bettername"},
+            headers=user_headers,
+        )
+        assert resp.status_code == 200
+
+        resp = client.get("/api/account/profile", headers=user_headers)
+        assert resp.json()["username"] == "bettername"
+
+    async def test_update_username_conflict(self, client, another_user, user_headers):
+        resp = client.put(
+            "/api/account/profile",
+            json={"username": another_user.username},
+            headers=user_headers,
+        )
+        assert resp.status_code == 409
