@@ -115,59 +115,7 @@ docs/README.md（本文件）
 
 ## Windows 开发环境说明
 
-本项目日常开发在 **Windows 11 + Git Bash** 环境下进行，以下是与 Linux/macOS 环境的主要差异和注意事项：
-
-### 路径与 Shell
-
-- **Shell**：使用 Git Bash（POSIX sh），而非 PowerShell 或 cmd.exe。所有文档中的 bash 命令均在此环境下执行。
-- **路径分隔符**：文档内统一使用正斜杠 `/`，Git Bash 可正确识别；向 Windows 原生程序传路径时可能需要转换。
-- **PowerShell 保留变量**：`$pid` 在 PowerShell 中是保留变量，写脚本时需避免使用此变量名。
-
-### 端口与服务
-
-- **后端固定端口 `8001`**：`uvicorn --reload --port 8001`。若误启在 `8000`，前端 Vite 代理将失效（`web/vite.config.ts` 代理指向 `127.0.0.1:8001`）。
-- **生产端口（Docker）**：nginx 占 `80` 对外，api 反代在 `127.0.0.1:8000`，db 在 `127.0.0.1:5432`；compose 项目名 `lishangyun`（2026-10-16 起，容器/卷均为 `lishangyun-*`）。web 容器为一次性构建容器，构建完成退出码 0 属正常。
-- **开发环境**：只启动 PostgreSQL 容器（`docker compose up -d postgres`），后端用本地 `uvicorn` 运行。**不要**在开发时执行完整的 `docker compose up -d --build`（那是生产部署）。
-- **Docker 路径**：Git Bash 默认找不到 Docker CLI，如需使用需先执行：
-  ```bash
-  export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
-  ```
-
-### Git 与仓库
-
-- **仓库级代理**：向 GitHub 推送时必须走代理，当前配置为：
-  ```bash
-  git config --local http.proxy http://127.0.0.1:9567
-  ```
-  若代理端口变更，需同步更新 `.git/config`。
-- **Junction 路径**：`D:\web\GiftRegistry` 是指向 `D:\web\lishangyun` 的 Windows junction（旧对话窗口恢复用）。确认无用后可删除：
-  ```bash
-  rmdir "D:\web\GiftRegistry"
-  ```
-
-### 前端验证陷阱
-
-- **PWA Service Worker 缓存**：浏览器缓存会导致"代码改了但页面没变化"。验证前务必 **Ctrl+F5 强制刷新** 或清除缓存。
-- **Uvicorn 热重载失灵**：`--reload` 在 Windows 下偶发不生效，改代码后以 `curl http://127.0.0.1:8001/openapi.json` 实测为准。
-- **Kimi 桌面端孤儿进程**：Kimi 桌面端可能托管 dev server，终端关闭后 uvicorn 可能仍在后台运行。用以下命令检查并结束：
-  ```bash
-  netstat -ano | grep LISTENING   # 查看占用 8001 的进程
-  taskkill /PID <pid> /F          # 结束进程（在 cmd 中执行）
-  ```
-
-### 测试执行
-
-- **后端测试**：系统 Python 无 pytest，必须在项目虚拟环境中运行：
-  ```bash
-  cd server
-  .venv/Scripts/python.exe -m pytest
-  ```
-- **前端测试**：
-  ```bash
-  cd web
-  npx vitest run
-  npx tsc --noEmit
-  ```
+环境差异、端口、Docker/Git 配置、验证陷阱、测试命令等已合并至 [00-meta/Windows开发环境.md](00-meta/Windows开发环境.md)（2026-10-16 起以此为准，本文档不再重复维护）。
 
 ---
 
