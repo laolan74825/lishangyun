@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -37,6 +37,7 @@ beforeEach(() => {
 })
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
 describe('PasswordResetPage - 找回方式切换', () => {
@@ -89,5 +90,80 @@ describe('PasswordResetPage - 找回方式切换', () => {
       expect(screen.getByText('验证码已发送至')).toBeInTheDocument()
     })
     expect(screen.getByText('13800001234')).toBeInTheDocument()
+  })
+})
+
+
+describe('PasswordResetPage - 引导式邮箱找回', () => {
+  it('用户名失焦自动查询并显示掩码邮箱', async () => {
+    const user = userEvent.setup()
+    render(<PasswordResetPage />)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'tester')
+    await user.tab() // 触发失焦自动查询
+
+    await waitFor(() => {
+      expect(screen.getByText(/您的安全邮箱为/)).toBeInTheDocument()
+    })
+    expect(screen.getByText('te***@test.com')).toBeInTheDocument()
+  })
+
+  it('用户不存在时提示检查用户名是否正确', async () => {
+    server.use(
+      http.post('/api/auth/password-reset/email-hint', () => {
+        return HttpResponse.json({ masked_email: null })
+      }),
+    )
+    const user = userEvent.setup()
+    render(<PasswordResetPage />)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'ghost')
+    await user.tab()
+
+    await waitFor(() => {
+      expect(screen.getByText(/请检查用户名是否正确/)).toBeInTheDocument()
+    })
+  })
+
+  it('邮箱域名与掩码不一致时阻止发送并提示', async () => {
+    let codeRequested = false
+    server.use(
+      http.post('/api/auth/password-reset/request', () => {
+        codeRequested = true
+        return HttpResponse.json({ message: '验证码已发送' })
+      }),
+    )
+    const user = userEvent.setup()
+    render(<PasswordResetPage />)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'tester')
+    await user.tab()
+    await waitFor(() => {
+      expect(screen.getByText(/您的安全邮箱为/)).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText(/请输入 te\*\*\*@test\.com 的完整邮箱地址/), 'someone@163.com')
+    await user.click(screen.getByRole('button', { name: '发送验证码' }))
+
+    expect(await screen.findByText(/域名与绑定的安全邮箱/)).toBeInTheDocument()
+    expect(codeRequested).toBe(false)
+  })
+
+  it('域名一致时正常发送并进入重置步骤', async () => {
+    const user = userEvent.setup()
+    render(<PasswordResetPage />)
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'tester')
+    await user.tab()
+    await waitFor(() => {
+      expect(screen.getByText(/您的安全邮箱为/)).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText(/完整邮箱地址/), 'someone@test.com')
+    await user.click(screen.getByRole('button', { name: '发送验证码' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('验证码已发送至')).toBeInTheDocument()
+    })
   })
 })

@@ -21,6 +21,8 @@ export default function PasswordResetPage() {
   const [maskedEmail, setMaskedEmail] = useState('')
   const [hintError, setHintError] = useState('')
   const [hintLoading, setHintLoading] = useState(false)
+  /** 最近一次发起过查询的用户名，用于失焦去重（同一用户名不重复查询） */
+  const [hintFor, setHintFor] = useState('')
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -60,17 +62,27 @@ export default function PasswordResetPage() {
     setHintLoading(true)
     try {
       const res = await requestPasswordResetHint(name)
+      setHintFor(name)
       if (res.masked_email) {
         setMaskedEmail(res.masked_email)
       } else {
         setMaskedEmail('')
-        setHintError('未找到该用户或用户未绑定安全邮箱')
+        setHintError('未找到该用户或用户未绑定安全邮箱，请检查用户名是否正确')
       }
     } catch (err) {
+      setHintFor(name)
       setMaskedEmail('')
-      setHintError(err instanceof Error ? err.message : '未找到该用户或用户未绑定安全邮箱')
+      setHintError(err instanceof Error ? err.message : '查询失败，请稍后重试')
     } finally {
       setHintLoading(false)
+    }
+  }
+
+  /** 用户名输入框失焦时自动查询掩码邮箱（每个用户名只查一次） */
+  function handleUsernameBlur() {
+    const name = username.trim()
+    if (name && hintFor !== name && !hintLoading) {
+      void fetchEmailHint()
     }
   }
 
@@ -80,6 +92,14 @@ export default function PasswordResetPage() {
     try {
       if (method === 'email') {
         if (!email) {
+          setSending(false)
+          return
+        }
+        // 已查到掩码邮箱时校验域名，尽早发现输错邮箱
+        const maskedDomain = maskedEmail.includes('@') ? maskedEmail.split('@')[1] : ''
+        const inputDomain = email.includes('@') ? email.split('@')[1] : ''
+        if (maskedDomain && inputDomain && maskedDomain !== inputDomain) {
+          setError(`邮箱域名与绑定的安全邮箱（@${maskedDomain}）不一致，请检查`)
           setSending(false)
           return
         }
@@ -210,7 +230,9 @@ export default function PasswordResetPage() {
                         setUsername(e.target.value)
                         setMaskedEmail('')
                         setHintError('')
+                        setHintFor('')
                       }}
+                      onBlur={handleUsernameBlur}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault()
