@@ -19,7 +19,7 @@
 | 01 | [01-项目基本开发要求.md](01-core-specs/01-项目基本开发要求.md) | v3.0 | 2026-10-12 | active |
 | 02 | [02-AI开发基本流程.md](01-core-specs/02-AI开发基本流程.md) | v3.0 | 2026-10-12 | active |
 | 03 | [03-礼尚云-需求分析.md](01-core-specs/03-礼尚云-需求分析.md) | v4.4 | 2026-10-12 | active |
-| 04 | [04-用户管理需求规划.md](01-core-specs/04-用户管理需求规划.md) | v2.3 | 2026-10-01 | active |
+| 04 | [04-用户管理需求规划.md](01-core-specs/04-用户管理需求规划.md) | v2.4 | 2026-10-16 | active |
 | 05 | [05-ui-design-spec.md](01-core-specs/05-ui-design-spec.md) | v3.0 | 2026-09-24 | active |
 | 06 | [06-测试方案.md](01-core-specs/06-测试方案.md) | v3.0 | 2026-09-24 | active |
 
