@@ -1,6 +1,7 @@
 # AGENTS.md — 礼尚云（lishangyun）
 
 > 本文件由 Kimi Work 对话历史提炼生成（2026-10-12），供 AI 开发会话快速建立上下文。
+> 2026-10-16 增补：1.1 AI 会话阅读清单、第 10 节会话结束保存规范、Docker 运行拓扑。
 > 完整对话存档见 `docs/kimi-work-history/`（11 个对话，含索引 README）。
 > 权威需求与规格以 `docs/` 文档为准，本文件只做决策摘要与避坑指引。
 
@@ -8,7 +9,27 @@
 
 - **产品**：礼尚云 —— 面向中国家庭的礼金往来记账工具（日常记账 + 婚礼/寿宴现场多终端协作收礼），slogan「人情往来小账本，随手记下每一份心意」。原名「礼云随笔 / GiftRegistry」，2026-10-10 更名。
 - **技术栈**：前端 React 19 + TypeScript + Vite 8 + TanStack Query/Router + Tailwind 4 + Dexie.js + ECharts；后端 Python 3.14 + FastAPI + SQLAlchemy 2.0 async + PostgreSQL 17；部署 Docker Compose 四服务（db / api / web / nginx）。
-- **先读文档**：`docs/项目基本开发要求.md`（总规范）、`docs/AI开发基本流程.md`（开发流程）、`docs/礼尚云-需求分析.md`（需求权威源）、`docs/ui-design-spec.md`、`docs/上线合规检查清单.md`。
+- **先读文档**（按任务类型，见下表）：总规范 `docs/01-core-specs/01-项目基本开发要求.md`、开发流程 `docs/01-core-specs/02-AI开发基本流程.md`、需求权威源 `docs/01-core-specs/03-礼尚云-需求分析.md`、UI 规格 `docs/01-core-specs/05-ui-design-spec.md`、合规 `docs/03-operations/上线合规检查清单.md`。文档地图与阅读路径见 `docs/README.md`。
+
+## 1.1 AI 会话阅读清单
+
+**每次会话开始（必读，按序）**：
+
+1. 本文件（AGENTS.md）——约束、红线、避坑
+2. `docs/README.md`——文档地图、版本表、推荐阅读路径
+3. 按任务类型读下表对应文档
+
+| 任务类型 | 必读文档 |
+|---------|---------|
+| 日常功能开发 | `01-core-specs/03-礼尚云-需求分析.md`（确认模块与 F-x.x 编号、`[已实现]`/`[待实现]` 状态）+ `02-AI开发基本流程.md` |
+| 用户管理/权限 | `01-core-specs/04-用户管理需求规划.md` + `01-项目基本开发要求.md` |
+| 新功能方案设计 | `02-plans/` 下对应专项方案 + `02-plans/sync-protocol.md`（涉及同步时） |
+| 修复 Bug | `01-core-specs/06-测试方案.md` + `05-implementation/` 近期汇总（查已知问题） |
+| 用户答疑/故障排查 | `04-support/AI-support.md` + `05-implementation/` 近期汇总 |
+| 部署/运维 | `docker-compose.yml` + `nginx.conf` + `03-operations/` + 本文第 7 节 |
+| 追溯历史决策 | `docs/kimi-work-history/README.md`（11 个完整对话存档）→ `99-archive/` |
+
+**禁止**：不读需求文档凭记忆实现；跨模块改动不查 `05-implementation/` 近期汇总（同一坑可能修过）。
 
 ## 2. 工作规则
 
@@ -62,7 +83,8 @@
 
 - **后端固定 8001 端口**：`cd server && uv run uvicorn app.main:app --reload --port 8001`；`web/vite.config.ts` 代理 `/api` 和 `/api/ws` 到 `127.0.0.1:8001`。起在 8000 会"页面能开接口全挂"。
 - 开发环境只跑 db 容器 + 本地 uvicorn；生产才 `docker compose up -d --build`。api 容器重建后若 nginx 502，重启 nginx（nginx.conf 已改 Docker 内嵌 DNS 动态解析，旧坑仍需知道）。
-- Git Bash 没有 docker：`export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"`（还需 cli-plugins）。
+- **Docker 运行拓扑（compose 项目名 `lishangyun`，2026-10-16 起）**：容器 `lishangyun-db/api/web/nginx`。生产形态——nginx 占 80 端口对外，api 只绑 `127.0.0.1:8000` 由 nginx 反代，db 只绑 `127.0.0.1:5432`；web 容器是**一次性构建容器**（pnpm build 后把静态产物拷进 `lishangyun_static_files` 卷即退出，退出码 0 属正常，不是故障）。数据卷 `lishangyun_pgdata`（数据库，删了数据就没了）与 `lishangyun_static_files`。
+- Git Bash 没有 docker：`export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"`（还需 cli-plugins）。注意 resources/bin 里只有独立的 `docker-compose.exe`（v1，不识别 `name:` 字段，项目名按目录名取），没有 compose v2 插件。
 - **PWA Service Worker 缓存**会制造"改了没生效"的假象——验证前先 Ctrl+F5 或清缓存。
 - uvicorn `--reload` watcher 多次失灵；改代码后以 `curl openapi.json` 实测为准。Kimi 桌面端可能托管 dev server，终端关后留意孤儿 uvicorn（`netstat -ano | grep LISTENING` 确认）。
 - 后端路由不带尾斜线（尾斜线 307 跨源会剥 Authorization 头 → 401"闪现跳回登录页"）。
@@ -75,14 +97,29 @@
 - 对外公开运营需办：ICP 备案、App 备案、PIPL 隐私政策与注销渠道（当前自部署/亲友使用不触发）。商标（第 9/42 类）与 `lishangyun.com` 域名待办。
 - 阿里云短信当前为 Mock 模式（验证码在 `docker compose logs api` 的 INFO 日志），签名/模板审核通过后在管理后台切真实模式。
 
-## 9. 未完成事项（截至 2026-10-12）
+## 9. 未完成事项（截至 2026-10-16）
 
-- 商标近似查询与注册、域名 `lishangyun.com` 注册。
-- 归档/删除旧仓库 `laolan74825/GiftRegistry`；清理 `D:\web\giftregistry.bundle`；删除 junction（确认旧窗口不用后）。
+- 商标近似查询与注册（按新名「礼尚云」，第 9/42 类）、域名 `lishangyun.com` 注册。
+- 归档/删除旧仓库 `laolan74825/GiftRegistry`；清理 `D:\web\giftregistry.bundle`；删除 junction（确认旧窗口不用后）。~~Docker 旧容器/旧数据卷~~ 已于 2026-10-16 清理完毕。
 - GitHub 账号开 2FA、启用 Secret scanning / Push Protection。
 - 短信切真实模式并同步云服务器配置；Capacitor APK 打包、软著、App 备案。
 - `VSCode扩展备份.txt` 是否留在仓库，待决定。
 
-## 10. 历史存档
+## 10. 会话结束保存规范
+
+对话中产生的成果，按类型落到对应位置，**不许只留在对话里**（对话记录易失，项目文档与 git 才是持久层）：
+
+| 成果类型 | 去向 | 说明 |
+|---------|------|------|
+| 新踩的坑、新定的关键决策 | 更新本文件（AGENTS.md）对应小节 | 这是下一个会话的上下文来源，价值最高 |
+| 接口/口径/约束变更 | `01-core-specs/` 对应规范 + `CHANGELOG.md`「未发布」段 | 规范与代码同步是硬纪律 |
+| 跨模块、多文件的较大改动 | `05-implementation/YYYY-MM-DD-主题汇总.md` | 记录变更点、验证方式、运维说明 |
+| 值得留存的完整对话 | `docs/kimi-work-history/` | 同步更新其 `README.md` 索引（主题、轮数、日期） |
+| 新文档 / 文档版本变化 | `docs/README.md` 对应表格 | 版本号改动必须同步版本表 |
+| 配置/部署形态变化 | 本文件第 7 节 + `docker-compose.yml` 注释 | 如端口、容器名、卷名 |
+
+提交纪律：中文提交信息、带范围前缀（fix/feat/docs/chore）、按逻辑拆分、不夹带无关文件（如个人脚本 `ask.py` 不入库）；推送前确认走仓库级代理（见第 2 节第 7 条）。
+
+## 11. 历史存档
 
 需要追溯某项决策的来龙去脉时，读 `docs/kimi-work-history/README.md` 按主题找到对应对话全文（2026-09-30 至 2026-10-10，共 11 个）。

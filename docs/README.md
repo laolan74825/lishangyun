@@ -10,7 +10,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| （预留） | 文档命名规范、版本号规则、归档规则 |
+| [文档维护规范.md](00-meta/文档维护规范.md) | 目录职责、命名/版本/归档规则、AI 会话文档操作禁区 |
 
 ### 01-core-specs — 核心规范（现行有效，代码变更须同步）
 
@@ -84,7 +84,7 @@
 ### AI 开发会话（日常开发）
 
 ```text
-仓库根目录 AGENTS.md
+仓库根目录 AGENTS.md（含 1.1 AI 会话阅读清单、第 10 节会话结束保存规范）
         ↓
 docs/README.md（本文件）
         ↓
@@ -126,6 +126,7 @@ docs/README.md（本文件）
 ### 端口与服务
 
 - **后端固定端口 `8001`**：`uvicorn --reload --port 8001`。若误启在 `8000`，前端 Vite 代理将失效（`web/vite.config.ts` 代理指向 `127.0.0.1:8001`）。
+- **生产端口（Docker）**：nginx 占 `80` 对外，api 反代在 `127.0.0.1:8000`，db 在 `127.0.0.1:5432`；compose 项目名 `lishangyun`（2026-10-16 起，容器/卷均为 `lishangyun-*`）。web 容器为一次性构建容器，构建完成退出码 0 属正常。
 - **开发环境**：只启动 PostgreSQL 容器（`docker compose up -d postgres`），后端用本地 `uvicorn` 运行。**不要**在开发时执行完整的 `docker compose up -d --build`（那是生产部署）。
 - **Docker 路径**：Git Bash 默认找不到 Docker CLI，如需使用需先执行：
   ```bash
