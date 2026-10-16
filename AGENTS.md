@@ -81,6 +81,22 @@
 - 首查 **PWA Service Worker 缓存**："改了没生效"先 Ctrl+F5，再怀疑代码。
 - Docker/Git/测试命令/验证陷阱的完整细节见 `docs/00-meta/Windows开发环境.md`。
 
+### 测试账户备忘（仅本地开发环境，2026-10-16 整理）
+
+**开发库 `giftregistry`**（本地 :5432；docker 全套 :80 与本地 uvicorn :8001 共用同一库）：
+
+| 用户名 | 密码 | 角色 | 说明 |
+| --- | --- | --- | --- |
+| `laolan_super` | `test123` | 超级管理员 | 昵称 laolan；2026-10-16 重置为弱密码，仅限本机，部署外网前必须换 |
+| `test1` / `test2` / `test3` | 不明 | 一般用户 | 历史测试造数 |
+| `owner1`（所有者1）、`member1`（成员1）、`member2`（成员2） | 不明 | 一般用户 | 家庭组/协作测试造数 |
+
+**E2E 测试账号**（`e2e/e2e_seed.py` 造入同一开发库）：`e2e_owner` / `E2eOwner@123`、`e2e_invitee` / `E2eInvitee@123`。
+
+**pytest**（`giftregistry_test` 库每次重建，conftest 自动生成，无需手记）：`admin` / `password123`（super_admin fixture）等。
+
+⚠️ **登录用的是用户名（username），不是昵称**——`laolan` 是昵称，用它登录会报"用户名或密码错误"，连续 5 次触发 10 分钟锁定（2026-10-16 踩过）。
+
 ## 8. 安全与合规
 
 - 新增依赖先核许可证并同步 `docs/第三方依赖许可证清单.md`（现全部为宽松许可证，无 GPL/AGPL）。
