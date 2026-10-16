@@ -1255,6 +1255,11 @@ export async function requestPasswordResetHint(username: string): Promise<{ mask
   return api.post('/auth/password-reset/email-hint', { username })
 }
 
+/** 注册页用户名失焦预检：是否可用（429 限流时由调用方静默忽略） */
+export async function checkUsername(username: string): Promise<{ available: boolean }> {
+  return api.post('/auth/check-username', { username })
+}
+
 export async function confirmPasswordReset(data: {
   email?: string
   phone?: string

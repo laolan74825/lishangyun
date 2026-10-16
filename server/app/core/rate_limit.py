@@ -58,3 +58,6 @@ login_attempts = _LoginAttemptStore()
 # 找回密码 email-hint 端点的防枚举限流：以客户端 IP 为键。
 # 攻击者枚举用户名时会轮换用户名，按用户名限流无效；按 IP 限流才能挡住批量探测。
 email_hint_attempts = _LoginAttemptStore()
+
+# 注册页用户名失焦查重端点的限流：同为防枚举（探测用户名是否已注册），策略与 email-hint 一致。
+username_check_attempts = _LoginAttemptStore()

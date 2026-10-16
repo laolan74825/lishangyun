@@ -56,6 +56,10 @@ class PasswordResetEmailHintRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=50)
 
 
+class UsernameCheckRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=50, description="待预检的用户名，长度规则服务端复核")
+
+
 class PasswordResetConfirm(BaseModel):
     email: str | None = None
     phone: str | None = None

@@ -848,3 +848,67 @@ describe('LoginPage - 用户名为选填', () => {
     expect(requestBody).not.toHaveProperty('username')
   })
 })
+
+
+describe('LoginPage - 用户名失焦查重', () => {
+  it('注册时用户名已被占用，失焦立即红字提示', async () => {
+    server.use(
+      http.post('/api/auth/check-username', () => {
+        return HttpResponse.json({ available: false })
+      }),
+    )
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await user.click(screen.getByText('没有账户？立即注册'))
+    await waitFor(() => {
+      expect(screen.getByText('创建新账户')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'takenuser')
+    await user.tab() // 失焦触发即时查重
+
+    expect(await screen.findByText('该用户名已被使用，请换一个')).toBeInTheDocument()
+  })
+
+  it('注册时用户名可用，失焦不提示', async () => {
+    server.use(
+      http.post('/api/auth/check-username', () => {
+        return HttpResponse.json({ available: true })
+      }),
+    )
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await user.click(screen.getByText('没有账户？立即注册'))
+    await waitFor(() => {
+      expect(screen.getByText('创建新账户')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText('请输入用户名'), 'freeuser')
+    await user.tab()
+
+    expect(screen.queryByText('该用户名已被使用，请换一个')).not.toBeInTheDocument()
+  })
+
+  it('登录模式下失焦不触发查重', async () => {
+    let checked = false
+    server.use(
+      http.post('/api/auth/check-username', () => {
+        checked = true
+        return HttpResponse.json({ available: false })
+      }),
+    )
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('登录以继续')).toBeInTheDocument()
+    })
+
+    await user.type(screen.getByPlaceholderText('请输入用户名或手机号'), 'whoever')
+    await user.tab()
+
+    expect(checked).toBe(false)
+  })
+})

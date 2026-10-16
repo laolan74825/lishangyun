@@ -5,6 +5,7 @@ import { setToken, setCurrentUser, type AuthUser } from '../lib/auth'
 import { showGlobalToast } from '../lib/toast-bus'
 import { describeError, isOutageError, NETWORK_ERROR_TOAST_KEY } from '../lib/queryClient'
 import EmailSuggestInput, { rememberEmail } from '../components/EmailSuggestInput'
+import { checkUsername } from '../lib/api-client'
 
 interface TokenResponse {
   access_token: string
@@ -86,6 +87,20 @@ export default function LoginPage() {
   function setFieldError(message: string, field: ErrorField) {
     setError(message)
     setErrorField(field)
+  }
+
+  /** 注册模式下用户名失焦即时查重：被占用即红字提示，提交时服务端仍会兜底校验 */
+  async function checkUsernameAvailability() {
+    const name = username.trim()
+    if (!isRegister || !name || name.length < 3) return
+    try {
+      const res = await checkUsername(name)
+      if (!res.available) {
+        setFieldError('该用户名已被使用，请换一个', 'username')
+      }
+    } catch {
+      // 限流或网络异常不阻断输入，提交时服务端会再校验
+    }
   }
 
   async function handleSendCode() {
@@ -181,6 +196,9 @@ export default function LoginPage() {
               onChange={(e) => {
                 setUsername(e.target.value)
                 setError('')
+              }}
+              onBlur={() => {
+                if (isRegister) void checkUsernameAvailability()
               }}
               required={!isRegister}
               autoFocus

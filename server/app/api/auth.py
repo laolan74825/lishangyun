@@ -12,7 +12,7 @@ from app.core.crypto import decrypt_value, encrypt_value
 from app.core.dependencies import CurrentUser, DbSession, get_current_user
 from app.core.email_service import send_reset_email, send_verification_email
 from app.core.sms import SmsSendError, send_sms_or_mock
-from app.core.rate_limit import email_hint_attempts, login_attempts
+from app.core.rate_limit import email_hint_attempts, login_attempts, username_check_attempts
 from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
 from app.core.time import utcnow
 from app.core.user_id import add_user_with_generated_id
@@ -37,6 +37,7 @@ from app.schemas.auth import (
     SendVerificationCodeRequest,
     TokenResponse,
     UserInfo,
+    UsernameCheckRequest,
     VerifyLockPinRequest,
     VerifyPasswordRequest,
 )
@@ -212,6 +213,36 @@ async def _verify_phone_code(db: DbSession, phone: str, code: str) -> None:
     if not verification_code:
         raise HTTPException(status_code=400, detail="短信验证码无效或已过期")
     verification_code.used = True
+
+
+@router.post("/check-username")
+async def check_username(body: UsernameCheckRequest, request: Request, db: DbSession):
+    """注册页用户名失焦预检：即时反馈是否可用，减少"填完所有信息才被告知重名"的挫败。
+
+    最终唯一性仍以 /register 服务端校验为准；按客户端 IP 限流防枚举
+    （与 email-hint 同策略：查到被占用计失败，连续 login_max_attempts 次锁定）。
+    """
+    ip = request.client.host if request.client else "unknown"
+    if username_check_attempts.is_locked(ip):
+        minutes = username_check_attempts.remaining_minutes(ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"尝试次数过多，请约 {minutes} 分钟后再试",
+        )
+
+    username = body.username.strip()
+    if len(username) < 3 or len(username) > 50:
+        raise HTTPException(status_code=400, detail="用户名长度需为 3~50 个字符")
+
+    result = await db.execute(
+        select(User.id).where(User.username == username, User.is_deleted == False)
+    )
+    taken = result.scalar_one_or_none() is not None
+    if taken:
+        username_check_attempts.record_failure(ip)
+    else:
+        username_check_attempts.record_success(ip)
+    return {"available": not taken}
 
 
 async def _generate_auto_username(db: DbSession, user_id: int) -> str:

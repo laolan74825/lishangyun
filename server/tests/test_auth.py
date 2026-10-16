@@ -812,3 +812,40 @@ class TestUpdateProfileUsername:
             headers=user_headers,
         )
         assert resp.status_code == 409
+
+
+class TestCheckUsername:
+    """注册页用户名失焦预检 /auth/check-username：可用性 + IP 限流防枚举。"""
+
+    async def test_available_for_fresh_name(self, client):
+        resp = client.post("/api/auth/check-username", json={"username": "freshname"})
+        assert resp.status_code == 200
+        assert resp.json() == {"available": True}
+
+    async def test_taken_for_existing_name(self, client, db_session):
+        from tests.conftest import _make_user
+
+        await _make_user(db_session, username="takenname")
+        resp = client.post("/api/auth/check-username", json={"username": "takenname"})
+        assert resp.status_code == 200
+        assert resp.json() == {"available": False}
+
+    async def test_short_name_rejected(self, client):
+        resp = client.post("/api/auth/check-username", json={"username": "ab"})
+        assert resp.status_code == 400
+
+    async def test_rate_limited_by_ip(self, client, db_session, monkeypatch):
+        """连续探测已占用用户名（计失败）达到上限后，按 IP 锁定。"""
+        from app.api import auth as auth_module
+        from app.core.rate_limit import _LoginAttemptStore
+        from tests.conftest import _make_user
+
+        monkeypatch.setattr(auth_module, "username_check_attempts", _LoginAttemptStore())
+        for i in range(settings.login_max_attempts):
+            await _make_user(db_session, username=f"takenprobe{i}")
+            resp = client.post("/api/auth/check-username", json={"username": f"takenprobe{i}"})
+            assert resp.status_code == 200
+            assert resp.json() == {"available": False}
+
+        resp = client.post("/api/auth/check-username", json={"username": "takenprobe_final"})
+        assert resp.status_code == 429
