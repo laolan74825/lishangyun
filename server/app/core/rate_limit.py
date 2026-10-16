@@ -1,7 +1,7 @@
-"""登录防爆破：内存滑动窗口限流。
+"""登录防爆破与找回密码防枚举：内存滑动窗口限流。
 
-同一用户名在 login_lock_minutes 窗口内连续失败 login_max_attempts 次后，
-临时锁定至窗口结束；登录成功后计数清零。
+同一键在 login_lock_minutes 窗口内连续失败 login_max_attempts 次后，
+临时锁定至窗口结束；成功后计数清零。
 单实例部署足够；锁内只操作内存字典，不跨越 await，线程锁开销可忽略。
 """
 import threading
@@ -54,3 +54,7 @@ class _LoginAttemptStore:
 
 
 login_attempts = _LoginAttemptStore()
+
+# 找回密码 email-hint 端点的防枚举限流：以客户端 IP 为键。
+# 攻击者枚举用户名时会轮换用户名，按用户名限流无效；按 IP 限流才能挡住批量探测。
+email_hint_attempts = _LoginAttemptStore()

@@ -6,6 +6,10 @@
 
 ## [未发布]
 
+### 安全（找回密码防枚举加固）
+
+- **email-hint 接口加固**：`POST /auth/password-reset/email-hint` 用户不存在或未绑定安全邮箱时，由 404 改为 200 且返回 `masked_email: null`，与成功响应同构，消除状态码层面的用户名存在性泄露；按客户端 IP 接入内存滑动窗口限流（复用登录防爆破参数：窗口 10 分钟、最多 5 次，超出 429），阻挡轮换用户名的批量探测；前端同步兼容 `masked_email` 为 null 的响应
+
 ### 变更（项目更名：礼云随笔 → 礼尚云）
 
 - **前端**：界面文案、包名（`lishangyun` / `lishangyun-web`）、PWA manifest、页面标题统一更新

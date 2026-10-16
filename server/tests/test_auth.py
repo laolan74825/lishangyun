@@ -676,3 +676,56 @@ class TestLockPin:
         assert user.lock_pin_hash is not None
         assert user.lock_pin_hash != "1234"
         assert user.lock_pin_hash != user.password_hash
+
+
+
+class TestPasswordResetEmailHint:
+    """找回密码 email-hint：掩码提示、防枚举（用户不存在也返回 200）、按 IP 限流。"""
+
+    async def test_hint_returns_masked_email(self, client, db_session):
+        from app.models.security_email import SecurityEmail
+        from tests.conftest import _make_user
+
+        user = await _make_user(db_session, username="hintuser")
+        db_session.add(SecurityEmail(
+            user_id=user.id,
+            email="laolan123@example.com",
+            is_verified=True,
+            is_primary=True,
+        ))
+        await db_session.commit()
+
+        resp = client.post("/api/auth/password-reset/email-hint", json={"username": "hintuser"})
+        assert resp.status_code == 200
+        assert resp.json() == {"masked_email": "la***@example.com"}
+
+    async def test_hint_unknown_user_returns_null_instead_of_404(self, client):
+        resp = client.post("/api/auth/password-reset/email-hint", json={"username": "ghost_hint_user"})
+        assert resp.status_code == 200
+        assert resp.json() == {"masked_email": None}
+
+    async def test_hint_user_without_verified_email_returns_null(self, client, db_session):
+        from tests.conftest import _make_user
+
+        await _make_user(db_session, username="hintnoemail")
+        resp = client.post("/api/auth/password-reset/email-hint", json={"username": "hintnoemail"})
+        assert resp.status_code == 200
+        assert resp.json() == {"masked_email": None}
+
+    async def test_hint_rate_limited_by_ip(self, client, monkeypatch):
+        """轮换用户名批量探测时，按 IP 限流应在第 login_max_attempts 次失败后生效。"""
+        from app.api import auth as auth_module
+        from app.core.rate_limit import _LoginAttemptStore
+
+        monkeypatch.setattr(auth_module, "email_hint_attempts", _LoginAttemptStore())
+        for i in range(settings.login_max_attempts):
+            resp = client.post(
+                "/api/auth/password-reset/email-hint",
+                json={"username": f"sweepuser{i}"},
+            )
+            assert resp.status_code == 200
+            assert resp.json() == {"masked_email": None}
+
+        resp = client.post("/api/auth/password-reset/email-hint", json={"username": "sweepuser_final"})
+        assert resp.status_code == 429
+        assert "分钟" in resp.json()["detail"]

@@ -2,7 +2,7 @@ import logging
 import secrets
 from datetime import timedelta
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 logger = logging.getLogger(__name__)
 from sqlalchemy import delete, func, select
@@ -11,7 +11,7 @@ from app.core.crypto import decrypt_value, encrypt_value
 from app.core.dependencies import CurrentUser, DbSession, get_current_user
 from app.core.email_service import send_reset_email, send_verification_email
 from app.core.sms import SmsSendError, send_sms_or_mock
-from app.core.rate_limit import login_attempts
+from app.core.rate_limit import email_hint_attempts, login_attempts
 from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
 from app.core.time import utcnow
 from app.core.user_id import add_user_with_generated_id
@@ -318,12 +318,25 @@ async def change_password(
 
 
 @router.post("/password-reset/email-hint")
-async def password_reset_email_hint(body: PasswordResetEmailHintRequest, db: DbSession):
+async def password_reset_email_hint(
+    body: PasswordResetEmailHintRequest,
+    request: Request,
+    db: DbSession,
+):
     """根据用户名返回掩码后的安全邮箱，帮助用户回忆应输入哪个邮箱。
 
-    只暴露掩码（保留前 1-2 个字符 + 完整域名），不泄露完整地址；
-    用户不存在或未绑定安全邮箱时返回统一模糊文案，避免用户名枚举。
+    只暴露掩码（保留前 1-2 个字符 + 完整域名），不泄露完整地址。
+    用户不存在或未绑定安全邮箱时返回 masked_email=null，与成功响应同构（均 200），
+    避免通过状态码差异枚举用户名；按客户端 IP 限流防批量探测。
     """
+    ip = request.client.host if request.client else "unknown"
+    if email_hint_attempts.is_locked(ip):
+        minutes = email_hint_attempts.remaining_minutes(ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"尝试次数过多，请约 {minutes} 分钟后再试",
+        )
+
     username = body.username.strip()
     result = await db.execute(
         select(User).where(User.username == username, User.is_deleted == False)
@@ -338,8 +351,11 @@ async def password_reset_email_hint(body: PasswordResetEmailHintRequest, db: DbS
         )
         security_email = email_result.scalar_one_or_none()
         if security_email:
+            email_hint_attempts.record_success(ip)
             return {"masked_email": _mask_email(security_email.email)}
-    raise HTTPException(status_code=404, detail="未找到该用户或用户未绑定安全邮箱")
+
+    email_hint_attempts.record_failure(ip)
+    return {"masked_email": None}
 
 
 def _mask_email(email: str) -> str:

@@ -60,7 +60,12 @@ export default function PasswordResetPage() {
     setHintLoading(true)
     try {
       const res = await requestPasswordResetHint(name)
-      setMaskedEmail(res.masked_email)
+      if (res.masked_email) {
+        setMaskedEmail(res.masked_email)
+      } else {
+        setMaskedEmail('')
+        setHintError('未找到该用户或用户未绑定安全邮箱')
+      }
     } catch (err) {
       setMaskedEmail('')
       setHintError(err instanceof Error ? err.message : '未找到该用户或用户未绑定安全邮箱')
