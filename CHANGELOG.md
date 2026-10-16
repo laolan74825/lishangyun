@@ -4,6 +4,16 @@
 
 **版本号唯一出处**：`web/package.json` 的 `version` 字段（应用页脚从该处读取）。版本策略（1.0 前）：功能批次/发布日递增 minor（0.2.0 → 0.3.0），线上热修复递增 patch（0.2.0 → 0.2.1）。发版：在 `web/` 下执行 `npm run release`（或 `npm run release:patch`），脚本会自动递增版本号并在本文件插入新条目骨架，填写内容后提交即可。
 
+## [未发布]
+
+### 变更（项目更名：礼云随笔 → 礼尚云）
+
+- **前端**：界面文案、包名（`lishangyun` / `lishangyun-web`）、PWA manifest、页面标题统一更新
+- **后端**：Swagger 文档标题（「礼尚云 API」）、验证码邮件主题（「【礼尚云】」）
+- **文档**：`docs/` 全部 12 篇文档统一更名；`礼云随笔-需求分析.md` 重命名为 `礼尚云-需求分析.md`（git 保留历史），交叉引用同步更新
+- **部署**：`docker-compose.yml` 增加 `name: lishangyun`，容器与数据卷以新项目名重建（`lishangyun-*`）；旧容器 `giftregistry-*` 与旧数据卷已删除，数据库数据完整迁移无丢失
+- **有意保留旧标识（避免破坏现有数据，勿改）**：PostgreSQL 数据库名 `giftregistry`、前端 IndexedDB 名 `GiftRegistryDB`、localStorage 键 `GiftRegistrySecureStorage`、前端加密 KEK 盐值常量
+
 ## [0.3.0] - 2026-10-10
 
 ### 新增（功能）
