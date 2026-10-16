@@ -9,6 +9,8 @@
 ### 安全（找回密码防枚举加固）
 
 - **email-hint 接口加固**：`POST /auth/password-reset/email-hint` 用户不存在或未绑定安全邮箱时，由 404 改为 200 且返回 `masked_email: null`，与成功响应同构，消除状态码层面的用户名存在性泄露；按客户端 IP 接入内存滑动窗口限流（复用登录防爆破参数：窗口 10 分钟、最多 5 次，超出 429），阻挡轮换用户名的批量探测；前端同步兼容 `masked_email` 为 null 的响应
+- **测试基础设施**：`server/tests/conftest.py` 测试库地址恢复为 `localhost:5432/giftregistry_test`（0.3.0 误改为容器网络主机名 `db`，本机无法解析导致测试全量报错），容器内可用环境变量 `TEST_DATABASE_URL` 覆盖
+- **测试修复**：`test_resend_after_interval_replaces_old_code` 打桩时钟与 `created_at` 真实落库时间存在请求耗时差，+61 秒仍可能落在 60 秒节流内而 429——放宽为 +90 秒
 
 ### 变更（项目更名：礼云随笔 → 礼尚云）
 

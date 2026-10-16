@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.pool import NullPool
@@ -30,7 +32,11 @@ from app.models import (
 )
 from app.models.user import User
 
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@db:5432/giftregistry_test"
+# 默认连本机开发库；容器内跑测试时用环境变量覆盖（docker compose 网络主机名为 db）
+TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/giftregistry_test",
+)
 test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 TestAsyncSession = async_sessionmaker(bind=test_engine, expire_on_commit=False)
 

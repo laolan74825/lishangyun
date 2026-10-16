@@ -399,7 +399,9 @@ class TestSendVerificationCode:
         resp = client.post("/api/auth/send-verification-code", json={"email": "again@test.com"})
         assert resp.status_code == 200
 
-        fake_now[0] += timedelta(seconds=61)
+        # created_at 由数据库/模型默认值按真实时间落库，与打桩时钟无关；
+        # 多留余量（90 秒），避免首次请求耗时使真实间隔仍落在 60 秒节流内
+        fake_now[0] += timedelta(seconds=90)
         resp = client.post("/api/auth/send-verification-code", json={"email": "again@test.com"})
         assert resp.status_code == 200
 
