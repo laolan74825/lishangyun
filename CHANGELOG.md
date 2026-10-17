@@ -6,6 +6,12 @@
 
 ## [未发布]
 
+### 安全（依赖漏洞修复，GitHub Dependabot 11 条告警清零）
+
+- **echarts 5.6.0 → 6.1.0**：修复运行时代码 XSS 漏洞（CVE-2026-45249，图表 tooltip/label 渲染用户可控文本时的脚本注入面）；升大版本前已按许可证清单预警项复查，echarts 6.1.0 仍为 Apache-2.0、zrender 6.1.0 为 BSD-3-Clause，无合规变化
+- **开发工具链整体升级**：vitest 3.2.7 → 5.0.5、vite 8.3.0 → 8.3.4、vite-plugin-pwa 1.3.0 → 2.0.0、@vitejs/plugin-react 6.1.1 → 6.1.2、oxc-transform-react → 0.152.0，连带消除 tinypool 两个严重 RCE（CVE-2026-104848/104849）、vitest/@vitest/mocker 路径穿越（CVE-2026-84373）、source-map-js 与 brace-expansion、serialize-javascript 等开发期 DoS/XSS 告警；`pnpm-workspace.yaml` 新增 overrides 钉死 brace-expansion ≥2.1.7/≥5.0.12、serialize-javascript ≥7.1.2、fast-uri ≥3.1.8
+- **测试适配**：`src/test/setup.ts` 引入路径改为 `@testing-library/jest-dom/vitest`（vitest 5 类型对齐）；全量回归 21 文件 203 用例通过，`tsc --noEmit` 与生产构建（含 PWA）通过
+
 ### 安全（找回密码防枚举加固）
 
 - **email-hint 接口加固**：`POST /auth/password-reset/email-hint` 用户不存在或未绑定安全邮箱时，由 404 改为 200 且返回 `masked_email: null`，与成功响应同构，消除状态码层面的用户名存在性泄露；按客户端 IP 接入内存滑动窗口限流（复用登录防爆破参数：窗口 10 分钟、最多 5 次，超出 429），阻挡轮换用户名的批量探测；前端同步兼容 `masked_email` 为 null 的响应
