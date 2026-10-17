@@ -36,6 +36,8 @@ status: active
 3. `server/requirements.txt` 有新增/变更依赖（含编译型包如 `greenlet`，"只有生产容器才爆"的坑）。
 4. 改了 alembic 迁移（api 容器 CMD 含 `alembic upgrade head`，撞号/幂等问题只在容器冷启动时暴露）。
 
+**验完即收（2026-10-17 定）**：质检线用完必须停掉 `api` 和 `nginx`（`docker stop lishangyun-api-1 lishangyun-nginx-1`），只留 `db` 容器。compose 中 db/api/nginx 均为 `restart: unless-stopped`——**已显式 stop 的容器重启 Docker/开机后不会自动拉起**（api/nginx 保持停止），未停的 db 会自动拉起（数据库始终就位，IDE 开发随连随用），这正是期望形态，不要把 `docker compose down` 当成收尾习惯（那会连 db 一起停）。web 容器为一次性构建容器，退出码 0 属正常。
+
 **Docker 运行拓扑（compose 项目名 `lishangyun`，2026-10-16 起）**：容器 `lishangyun-db/api/web/nginx`；web 容器是**一次性构建容器**（pnpm build 后把静态产物拷进 `lishangyun_static_files` 卷即退出，退出码 0 属正常，不是故障）。数据卷 `lishangyun_pgdata`（数据库，删了数据就没了）与 `lishangyun_static_files`。
 
 **Git Bash 使用 Docker**：

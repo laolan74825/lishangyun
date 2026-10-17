@@ -78,7 +78,7 @@
 ## 7. 本机环境速记
 
 - 开发后端固定 **8001**（起 8000 = 页面能开接口全挂）；开发只跑 db 容器 + 本地 uvicorn，生产才 `docker compose up -d --build`。
-- **何时起全套容器**：上线/发版前必做；改了 Dockerfile / docker-compose.yml / nginx.conf / alembic 迁移 / requirements.txt 时验证。容器是质检线不是工作台，日常迭代用不到。
+- **何时起全套容器**：上线/发版前必做；改了 Dockerfile / docker-compose.yml / nginx.conf / alembic 迁移 / requirements.txt 时验证。容器是质检线不是工作台，日常迭代用不到；**验完即收**（停 api/nginx 留 db，`unless-stopped` 保证已停的容器开机不自启）。
 - **AI 跑测试起服务须与用户 IDE 实例隔离**：先查 8001/5173 占用，被占就复用不另起；pytest 只许连 `giftregistry_test`；E2E 打 :80 且 seed 进开发库，跑完必须清理。详见 `docs/00-meta/Windows开发环境.md` 第六节。
 - 首查 **PWA Service Worker 缓存**："改了没生效"先 Ctrl+F5，再怀疑代码。
 - Docker/Git/测试命令/验证陷阱的完整细节见 `docs/00-meta/Windows开发环境.md`。
